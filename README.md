@@ -4,7 +4,7 @@ MoonPlacement 用来在送厂贴片前复核坐标文件。把同一版 PCB 的�
 
 ## 跑一遍示例
 
-安装 [MoonBit](https://www.moonbitlang.cn/download/)（已用 `moonc v0.10.16+b1a0e846e` 验证）和 Node.js 22 或更新版本。无需安装 npm 依赖。
+安装 [MoonBit](https://www.moonbitlang.cn/download/)（已用 `moonc v0.10.16+b1a0e846e` 验证）和 Node.js 22.3 或更新版本。无需安装 npm 依赖。
 
 ```sh
 git clone https://github.com/huahai29/moonplacement.git
