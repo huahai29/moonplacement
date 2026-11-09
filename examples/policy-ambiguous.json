@@ -1,0 +1,21 @@
+{
+  "baseline": {
+    "unit": "mm",
+    "bottom_x": "direct",
+    "angle_sign": 1,
+    "top_angle_offset_deg": 0,
+    "bottom_angle_offset_deg": 0
+  },
+  "delivery": {
+    "unit": "in",
+    "bottom_x": "auto",
+    "angle_sign": 1,
+    "top_angle_offset_deg": 0,
+    "bottom_angle_offset_deg": 0
+  },
+  "anchors": ["R1", "C1", "R2"],
+  "rotation": "0",
+  "position_tolerance_mm": 0.05,
+  "angle_tolerance_deg": 1,
+  "anchor_tolerance_mm": 0.02
+}
