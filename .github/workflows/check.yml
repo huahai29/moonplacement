@@ -1,0 +1,58 @@
+name: MoonPlacement 检查
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 安装固定 MoonBit 工具链
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh -o /tmp/install-moonbit.sh
+          bash /tmp/install-moonbit.sh "$(cat .moonbit-version)"
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - name: 格式与检查
+        run: |
+          moon version --all
+          moon version --all | grep -F "moonc v$(cat .moonbit-version)"
+          moon fmt --check
+          moon check --target all --deny-warn
+      - name: 四后端测试
+        run: |
+          moon test --target js
+          moon test --target wasm-gc
+          moon test --target wasm
+          moon test --target native
+      - name: 构建与命令行测试
+        run: |
+          moon build --target js
+          node --test tests/cli.test.mjs
+      - name: 复核 KiCad 实际导出
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends kicad
+          kicad-cli version
+          kicad-cli pcb export pos --side both --format csv --units mm -o _build/kicad-baseline.csv examples/two-sided.kicad_pcb
+          for mirror in direct negated; do
+            opts=()
+            if [ "$mirror" = negated ]; then opts=(--bottom-negate-x); fi
+            kicad-cli pcb export pos --side both --format csv --units in --use-drill-file-origin "${opts[@]}" -o _build/kicad-delivery.csv examples/two-sided.kicad_pcb
+            node _build/js/debug/build/cmd/main/main.js _build/kicad-baseline.csv _build/kicad-delivery.csv examples/policy.json > _build/kicad-report.json
+            node -e '
+              const assert = require("node:assert/strict");
+              const report = require("./_build/kicad-report.json");
+              const shift = report.frame.delivery_to_baseline_mm;
+              assert.equal(report.status, "pass");
+              assert.equal(report.baseline_count, 6);
+              assert.equal(report.delivery_count, 6);
+              assert.equal(report.frame.delivery_bottom_x, process.argv[1]);
+              assert.ok(Math.abs(shift.x - 5) < 0.001 && Math.abs(shift.y + 7) < 0.001);
+            ' "$mirror"
+          done
