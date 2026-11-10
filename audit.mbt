@@ -1,4 +1,8 @@
 ///|
+/// Schema used by audit results and CLI input errors.
+pub const REPORT_SCHEMA_VERSION : Int32 = 2
+
+///|
 pub(all) enum Verdict {
   Pass
   Different
@@ -42,9 +46,9 @@ fn findings(
   reference : Placement,
   target : Placement,
   policy : Policy,
-  frame : Frame,
-) -> Array[Json] {
-  let items : Array[Json] = []
+  frame : Frame?,
+  items : Array[Json],
+) -> Unit {
   if reference.side != target.side {
     items.push({
       "ref": Json(reference.refdes),
@@ -52,8 +56,9 @@ fn findings(
       "baseline": Json(side_name(reference.side)),
       "delivery": Json(side_name(target.side)),
     })
-    return items
+    return
   }
+  guard frame is Some(frame) else { return }
   let expected = position(
     reference,
     policy.baseline.units,
@@ -61,10 +66,7 @@ fn findings(
   )
   let canonical = position(target, policy.delivery.units, frame.negate_bottom_x)
   let rotated = rotation(canonical, frame.quarter_turns)
-  let delta = {
-    x: rotated.x + frame.translation.x - expected.x,
-    y: rotated.y + frame.translation.y - expected.y,
-  }
+  let delta = difference(frame.translation, difference(expected, rotated))
   let distance = magnitude(delta)
   if distance > policy.position_mm {
     items.push({
@@ -88,12 +90,11 @@ fn findings(
       "delta_deg": Json(angle_delta),
     })
   }
-  items
 }
 
 ///|
-/// Compare two exports of the same board revision using a single trusted frame.
-/// Candidate frames only use the declared anchors. Every reference is audited afterward.
+/// Compare two exports of the same board revision.
+/// Membership and side are always checked. Geometry requires a unique frame.
 pub fn audit(
   baseline_table : PlacementTable,
   delivery_table : PlacementTable,
@@ -101,21 +102,26 @@ pub fn audit(
 ) -> AuditResult {
   let baseline = baseline_table.rows
   let delivery = delivery_table.rows
-  let evidence : Array[Json] = []
+  let anchor_issues : Array[Json] = []
   let pairs : Array[AnchorPair] = []
   for key in policy.anchors {
     match (baseline.get(key), delivery.get(key)) {
       (Some(a), Some(b)) if a.side == b.side =>
         pairs.push({ baseline: a, delivery: b, })
       (Some(_), Some(_)) =>
-        evidence.push({ "ref": Json(key), "kind": Json("anchor_side") })
+        anchor_issues.push({ "ref": Json(key), "kind": Json("anchor_side") })
+      (None, None) =>
+        anchor_issues.push({
+          "ref": Json(key),
+          "kind": Json("anchor_missing_both"),
+        })
       (None, _) =>
-        evidence.push({
+        anchor_issues.push({
           "ref": Json(key),
           "kind": Json("anchor_missing_baseline"),
         })
       (_, None) =>
-        evidence.push({
+        anchor_issues.push({
           "ref": Json(key),
           "kind": Json("anchor_missing_delivery"),
         })
@@ -123,60 +129,56 @@ pub fn audit(
   }
   let has_bottom = baseline.values().any(part => part.side == Bottom) ||
     delivery.values().any(part => part.side == Bottom)
-  let search = if evidence.is_empty() {
+  let search = if anchor_issues.is_empty() {
     candidate_frames(pairs, policy, has_bottom)
   } else {
     { baseline_has_area: false, accepted: [], rejected: [], }
   }
   let candidates = search.accepted
-  let mut frame : Json = Json(null)
-  let mut reason : Json = Json(null)
-  let verdict = if !evidence.is_empty() {
-    reason = Json("invalid_anchors")
-    Indeterminate
-  } else if !search.baseline_has_area {
-    reason = Json("degenerate_baseline_anchors")
-    Indeterminate
-  } else if candidates.is_empty() {
-    reason = Json("no_matching_frame")
-    Indeterminate
-  } else if candidates.length() != 1 {
-    reason = Json("ambiguous_frame")
-    Indeterminate
-  } else {
-    let chosen = candidates[0]
-    frame = frame_json(chosen)
-    let keys = baseline.keys().collect()
-    keys.sort()
-    for key in keys {
-      match delivery.get(key) {
-        Some(target) =>
-          evidence.append(findings(baseline[key], target, policy, chosen))
-        None => evidence.push({ "ref": Json(key), "kind": Json("missing") })
-      }
-    }
-    let extra = delivery.keys().filter(key => !baseline.contains(key)).collect()
-    extra.sort()
-    for key in extra {
-      evidence.push({ "ref": Json(key), "kind": Json("extra") })
-    }
-    if !evidence.is_empty() {
-      Different
-    } else if baseline.length() == pairs.length() {
-      reason = Json("no_independent_components")
-      Indeterminate
-    } else {
-      Pass
+  let frame = if candidates.length() == 1 { Some(candidates[0]) } else { None }
+  let evidence : Array[Json] = []
+  let keys = baseline.keys().collect()
+  keys.sort()
+  for key in keys {
+    match delivery.get(key) {
+      Some(target) => findings(baseline[key], target, policy, frame, evidence)
+      None => evidence.push({ "ref": Json(key), "kind": Json("missing") })
     }
   }
+  let extra = delivery.keys().filter(key => !baseline.contains(key)).collect()
+  extra.sort()
+  for key in extra {
+    evidence.push({ "ref": Json(key), "kind": Json("extra") })
+  }
+  let (verdict, reason) = if !anchor_issues.is_empty() {
+    (Indeterminate, Json("invalid_anchors"))
+  } else if !search.baseline_has_area {
+    (Indeterminate, Json("degenerate_baseline_anchors"))
+  } else if candidates.is_empty() {
+    (Indeterminate, Json("no_matching_frame"))
+  } else if frame is None {
+    (Indeterminate, Json("ambiguous_frame"))
+  } else if !evidence.is_empty() {
+    (Different, Json(null))
+  } else if baseline.length() == pairs.length() {
+    (Indeterminate, Json("no_independent_components"))
+  } else {
+    (Pass, Json(null))
+  }
   let report : Json = {
-    "schema_version": Json(1),
+    "schema_version": Json(REPORT_SCHEMA_VERSION),
     "status": Json(verdict_name(verdict)),
     "reason": reason,
-    "frame": frame,
-    "candidate_frames": Json(candidates.map(frame_json)),
+    "frame": match frame {
+      Some(chosen) => frame_json(chosen, policy)
+      None => Json(null)
+    },
+    "candidate_frames": Json(
+      candidates.map(candidate => frame_json(candidate, policy)),
+    ),
     "rejected_frames": Json(search.rejected),
     "anchors": Json(policy.anchors),
+    "anchor_issues": Json(anchor_issues),
     "baseline_count": Json(baseline.length()),
     "delivery_count": Json(delivery.length()),
     "differences": Json(evidence),

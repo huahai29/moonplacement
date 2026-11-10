@@ -105,17 +105,113 @@ test "coincident and near-collinear anchors are indeterminate" {
 
 ///|
 test "missing and side-mismatched anchors carry distinct evidence" {
-  let baseline = fixture_table("A,0,0,0,top\nB,10,0,0,top\nC,0,10,0,top")
-  let delivery = fixture_table("A,0,0,0,top\nB,10,0,0,bottom")
-  let result = audit(baseline, delivery, fixture_policy())
+  let baseline = fixture_table(
+    "A,0,0,10,top\nB,10,0,10,top\nC,0,10,10,top\nD,5,5,10,top\nE,7,7,10,top",
+  )
+  let delivery = fixture_table(
+    "A,0,0,0,top\nB,10,0,0,bottom\nD,99,99,180,top\nX1,2,2,0,top",
+  )
+  let result = audit(
+    baseline,
+    delivery,
+    fixture_policy(anchors=["A", "B", "C", "G"]),
+  )
   assert_true(result.verdict is Indeterminate)
   assert_true(
     result.report
     is {
       "reason": String("invalid_anchors"),
-      "differences": [
+      "frame": Null,
+      "anchor_issues": [
         { "ref": String("B"), "kind": String("anchor_side"), .. },
         { "ref": String("C"), "kind": String("anchor_missing_delivery"), .. },
+        { "ref": String("G"), "kind": String("anchor_missing_both"), .. },
+      ],
+      "differences": [
+        { "ref": String("B"), "kind": String("side"), .. },
+        { "ref": String("C"), "kind": String("missing"), .. },
+        { "ref": String("E"), "kind": String("missing"), .. },
+        { "ref": String("X1"), "kind": String("extra"), .. },
+      ],
+      ..
+    },
+  )
+}
+
+///|
+test "minimax translation accepts a frame rejected by the mean" {
+  let baseline = fixture_table(
+    "A,0,0,10,top\nB,10,0,10,top\nC,0,10,10,top\nD,5,5,10,top",
+  )
+  let delivery = fixture_table(
+    "A,0,0,0,top\nB,10,0,0,top\nC,-0.035,10,0,top\nD,5,5,0,top",
+  )
+  let result = audit(baseline, delivery, fixture_policy())
+  assert_true(result.verdict is Pass)
+  guard! result.report
+    is {
+      "frame": {
+        "delivery_to_baseline_mm": { "x": Number(shift, ..), .. },
+        "max_anchor_error_mm": Number(max_error, ..),
+        "anchor_residuals": [
+          {
+            "ref": String("A"),
+            "delta_x_mm": Number(dx_a, ..),
+            "within_anchor_tolerance": True,
+            ..
+          },
+          { "ref": String("B"), "within_anchor_tolerance": True, .. },
+          {
+            "ref": String("C"),
+            "delta_x_mm": Number(dx_c, ..),
+            "within_anchor_tolerance": True,
+            ..
+          },
+        ],
+        "worst_anchor_refs": [String("A"), String("B"), String("C")],
+        ..
+      },
+      ..
+    }
+  assert_true((shift - 0.0175).abs() < 1.0e-12)
+  assert_true((max_error - 0.0175).abs() < 1.0e-12)
+  assert_true((dx_a - 0.0175).abs() < 1.0e-12)
+  assert_true((dx_c + 0.0175).abs() < 1.0e-12)
+}
+
+///|
+test "rejected frames identify per-anchor errors" {
+  let baseline = fixture_table(
+    "A,0,0,10,top\nB,10,0,10,top\nC,0,10,10,top\nD,5,5,10,top",
+  )
+  let delivery = fixture_table(
+    "A,0,0,0,top\nB,9.98,0,0,top\nC,-0.06,10,0,top\nE,5,5,0,top",
+  )
+  let result = audit(baseline, delivery, fixture_policy())
+  assert_true(result.verdict is Indeterminate)
+  assert_true(
+    result.report
+    is {
+      "reason": String("no_matching_frame"),
+      "frame": Null,
+      "rejected_frames": [
+        {
+          "reason": String("anchor_tolerance_exceeded"),
+          "frame": {
+            "anchor_residuals": [
+              { "ref": String("A"), "within_anchor_tolerance": False, .. },
+              { "ref": String("B"), "within_anchor_tolerance": True, .. },
+              { "ref": String("C"), "within_anchor_tolerance": False, .. },
+            ],
+            "worst_anchor_refs": [String("A"), String("C")],
+            ..
+          },
+          ..
+        },
+      ],
+      "differences": [
+        { "ref": String("D"), "kind": String("missing"), .. },
+        { "ref": String("E"), "kind": String("extra"), .. },
       ],
       ..
     },

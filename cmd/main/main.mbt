@@ -91,7 +91,7 @@ fn main {
   let code = run() catch {
     @placement.InvalidInput(field, message) => {
       let report : Json = {
-        "schema_version": Json(1),
+        "schema_version": Json(@placement.REPORT_SCHEMA_VERSION),
         "status": Json("input_error"),
         "field": Json(field),
         "message": Json(message),

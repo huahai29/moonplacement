@@ -19,11 +19,14 @@ function run(args, expectedExit) {
 
 test('normalizes inches, origin shift and bottom X', () => {
   const report = run([baseline, delivery, policy], 0);
-  assert.equal(report.schema_version, 1);
+  assert.equal(report.schema_version, 2);
   assert.equal(report.status, 'pass');
   assert.equal(report.frame.delivery_bottom_x, 'negated');
   assert.ok(Math.abs(report.frame.delivery_to_baseline_mm.x - 5) < 0.00002);
   assert.ok(Math.abs(report.frame.delivery_to_baseline_mm.y - 7) < 0.00002);
+  assert.deepEqual(report.anchor_issues, []);
+  assert.deepEqual(report.frame.anchor_residuals.map(({ ref }) => ref), report.anchors);
+  assert.ok(report.frame.anchor_residuals.every(anchor => anchor.within_anchor_tolerance));
   assert.deepEqual(report.differences, []);
 });
 
@@ -44,10 +47,13 @@ test('reports an ambiguous frame with evidence for both conventions', () => {
   assert.equal(report.reason, 'ambiguous_frame');
   assert.equal(report.frame, null);
   assert.deepEqual(report.candidate_frames.map(frame => frame.delivery_bottom_x), ['direct', 'negated']);
+  assert.ok(report.candidate_frames.every(frame => frame.anchor_residuals.length === 3));
 });
 
 test('invalid arguments and files return a structured input error', t => {
-  assert.equal(run([], 64).field, 'arguments');
+  const invalid = run([], 64);
+  assert.equal(invalid.field, 'arguments');
+  assert.equal(invalid.schema_version, 2);
   assert.equal(run([baseline, 'examples/missing.csv', policy], 64).field, 'examples/missing.csv');
   assert.equal(run([baseline, 'examples', policy], 64).field, 'examples');
 

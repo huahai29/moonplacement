@@ -19,7 +19,7 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 
 1. 导出同一板版次的基准 CSV 和送厂 CSV。支持 KiCad CSV 表头，以及嘉立创 CPL 常用的 `Designator / Mid X / Mid Y / Layer / Rotation` 表头。坐标列只填数字，单位写在配置中。
 2. 复制 [示例配置](examples/policy.json)，填写两张表的单位、底面 X 约定、角度方向和零位。选至少三个可信、分散的器件位号做基准。自动核对底面 X 时，基准需要能区分两种约定，通常至少选一个远离 X=0 的底面器件。
-3. 按示例命令运行，或将标准输出保存为 JSON。报告给出采用的变换、基准残差和逐器件差异。
+3. 按示例命令运行，或将标准输出保存为 JSON。报告给出候选变换、每颗基准件的偏差和逐器件差异。即使对不齐，也会列出能按位号确认的漏件、多件和错面。
 
 | 退出码 | 状态 | 含义 |
 | --- | --- | --- |

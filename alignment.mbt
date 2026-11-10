@@ -9,6 +9,7 @@ priv struct Frame {
   quarter_turns : Int32
   negate_bottom_x : Bool
   translation : Point
+  anchor_residuals : Array[Point]
   max_anchor_error_mm : Double
 }
 
@@ -53,7 +54,7 @@ fn difference(a : Point, b : Point) -> Point {
 
 ///|
 fn magnitude(a : Point) -> Double {
-  (a.x * a.x + a.y * a.y).sqrt()
+  @math.hypot(a.x, a.y)
 }
 
 ///|
@@ -92,29 +93,43 @@ fn fit_frame(
   turns : Int32,
   negate_bottom_x : Bool,
 ) -> Frame {
-  let mut sum_x = 0.0
-  let mut sum_y = 0.0
   let offsets : Array[Point] = []
   for i, point in delivery {
-    let offset = difference(baseline[i], rotation(point, turns))
-    offsets.push(offset)
-    sum_x += offset.x
-    sum_y += offset.y
+    offsets.push(difference(baseline[i], rotation(point, turns)))
   }
-  let count = offsets.length().to_double()
-  let translation = { x: sum_x / count, y: sum_y / count, }
+  let translation = minimax_translation(offsets)
+  let anchor_residuals = offsets.map(offset => difference(translation, offset))
   let mut max_anchor_error_mm = 0.0
-  for offset in offsets {
-    let error = magnitude(difference(offset, translation))
-    if error > max_anchor_error_mm {
-      max_anchor_error_mm = error
-    }
+  for residual in anchor_residuals {
+    max_anchor_error_mm = max_anchor_error_mm.max(magnitude(residual))
   }
-  { quarter_turns: turns, negate_bottom_x, translation, max_anchor_error_mm, }
+  {
+    quarter_turns: turns,
+    negate_bottom_x,
+    translation,
+    anchor_residuals,
+    max_anchor_error_mm,
+  }
 }
 
 ///|
-fn frame_json(frame : Frame) -> Json {
+fn frame_json(frame : Frame, policy : Policy) -> Json {
+  let residuals : Array[Json] = []
+  let worst_refs : Array[String] = []
+  for i, delta in frame.anchor_residuals {
+    let refdes = policy.anchors[i]
+    let distance = magnitude(delta)
+    if distance == frame.max_anchor_error_mm {
+      worst_refs.push(refdes)
+    }
+    residuals.push({
+      "ref": Json(refdes),
+      "delta_x_mm": Json(delta.x),
+      "delta_y_mm": Json(delta.y),
+      "distance_mm": Json(distance),
+      "within_anchor_tolerance": Json(distance <= policy.anchor_mm),
+    })
+  }
   {
     "rotation_deg": Json(frame.quarter_turns * 90),
     "delivery_bottom_x": Json(
@@ -129,6 +144,8 @@ fn frame_json(frame : Frame) -> Json {
       "y": Json(frame.translation.y),
     },
     "max_anchor_error_mm": Json(frame.max_anchor_error_mm),
+    "anchor_residuals": Json(residuals),
+    "worst_anchor_refs": Json(worst_refs),
   }
 }
 
@@ -181,7 +198,7 @@ fn candidate_frames(
         accepted.push(frame)
       } else {
         rejected.push({
-          "frame": frame_json(frame),
+          "frame": frame_json(frame, policy),
           "reason": Json("anchor_tolerance_exceeded"),
         })
       }
