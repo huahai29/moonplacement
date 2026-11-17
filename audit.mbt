@@ -200,19 +200,70 @@ pub fn audit(
   }
   let candidates = search.accepted
   let frame = if candidates.length() == 1 { Some(candidates[0]) } else { None }
-  let evidence : Array[Json] = []
   let keys = baseline.keys().collect()
   keys.sort()
+  let extra = delivery.keys().filter(key => !baseline.contains(key)).collect()
+  extra.sort()
+  let missing = keys.filter(key => !delivery.contains(key))
+  // A missing designator and an extra one at the same expected position is a
+  // rename, not two independent errors. Pair them geometrically so the report
+  // says "swapped" instead of "missing + extra".
+  let swap_for_missing : Map[String, String] = Map([])
+  let swapped_extra : Map[String, Bool] = Map([])
+  match frame {
+    Some(chosen) => {
+      let limit = (policy.position_mm * 2.0).max(0.2)
+      for key in missing {
+        let expected = position(
+          baseline[key],
+          policy.baseline.units,
+          policy.baseline.bottom_x is Negated,
+        )
+        let mut best = ""
+        let mut best_distance = limit
+        for candidate in extra {
+          if !swapped_extra.contains(candidate) {
+            let canonical = position(
+              delivery[candidate],
+              policy.delivery.units,
+              chosen.negate_bottom_x,
+            )
+            let predicted = chosen.transform.apply(canonical)
+            let distance = magnitude(difference(predicted, expected))
+            if distance < best_distance {
+              best_distance = distance
+              best = candidate
+            }
+          }
+        }
+        if !best.is_empty() {
+          swap_for_missing[key] = best
+          swapped_extra[best] = true
+        }
+      }
+    }
+    None => ()
+  }
+  let evidence : Array[Json] = []
   for key in keys {
     match delivery.get(key) {
       Some(target) => findings(baseline[key], target, policy, frame, evidence)
-      None => evidence.push({ "ref": Json(key), "kind": Json("missing") })
+      None =>
+        match swap_for_missing.get(key) {
+          Some(partner) =>
+            evidence.push({
+              "ref": Json(key),
+              "kind": Json("swapped"),
+              "with": Json(partner),
+            })
+          None => evidence.push({ "ref": Json(key), "kind": Json("missing") })
+        }
     }
   }
-  let extra = delivery.keys().filter(key => !baseline.contains(key)).collect()
-  extra.sort()
   for key in extra {
-    evidence.push({ "ref": Json(key), "kind": Json("extra") })
+    if !swapped_extra.contains(key) {
+      evidence.push({ "ref": Json(key), "kind": Json("extra") })
+    }
   }
   let pad_evidence : Array[Json] = []
   let mut pad_checked = 0

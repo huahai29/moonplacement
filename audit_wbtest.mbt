@@ -85,6 +85,34 @@ test "value and package mismatches are reported per designator" {
 }
 
 ///|
+test "renamed designator is reported as a swap instead of missing plus extra" {
+  let board = fixture_table(
+    "D1,5,5,10,top\nD2,15,5,10,top\nR1,10,10,10,top\nR2,20,10,10,top\nR3,10,20,10,top",
+  )
+  let delivery = fixture_table(
+    "D1,5,5,0,top\nX9,15,5,0,top\nR1,10,10,0,top\nR2,20,10,0,top\nR3,10,20,0,top",
+  )
+  let result = audit(
+    board,
+    delivery,
+    fixture_policy(anchors=["R1", "R2", "R3"]),
+  )
+  assert_true(result.verdict is Different)
+  guard! result.report
+    is {
+      "differences": [
+        {
+          "ref": String("D2"),
+          "kind": String("swapped"),
+          "with": String("X9"),
+          ..
+        },
+      ],
+      ..
+    }
+}
+
+///|
 test "all quarter-turns recovered with signed angle calibration and non-anchor holdout" {
   let baseline = fixture_table(
     "A,10,0,0,top\nB,30,0,90,top\nC,10,20,180,bottom\nD,19,13,355,bottom",

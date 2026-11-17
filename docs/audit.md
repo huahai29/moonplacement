@@ -47,7 +47,7 @@
 - `frame` 是唯一选中的变换，可能为空。包含 `rotation_deg`、`scale`、`delivery_bottom_x`、平移向量 `delivery_to_baseline_mm`、最大基准残差 `max_anchor_error_mm`。枚举模式下 `scale` 恒为 `1`，`rotation_deg` 为 90 的整数倍；注册引擎模式下两者都是连续估计值。
 - `candidate_frames` 列出通过基准检查的候选。`rejected_frames` 用 `anchor_tolerance_exceeded` 标记超出容差的候选，并附该候选的 `frame`。`degenerate_delivery_anchors` 表示该底面约定下的基准分布退化，此时只给出约定和原因。
 - 每个算出平移的 `frame` 都含 `anchor_residuals` 和 `worst_anchor_refs`。逐点残差按配置里的基准顺序给出位号、对齐后送厂点减基准点的 `delta_x_mm`、`delta_y_mm`、二维距离 `distance_mm`、是否在基准容差内以及是否进入一致集合的 `inlier`。`worst_anchor_refs` 包含达到最大残差的全部位号。残差可用于定位复核对象，同一组基准可能有多个并列最差点。
-- `differences` 记录器件差异。即使整体状态为 `indeterminate`，仍列出已确认的 `missing`、`extra`、`side`，以及 `value` 和 `package`。有唯一对齐变换时，也列出 `position` 和 `angle`。
+- `differences` 记录器件差异。即使整体状态为 `indeterminate`，仍列出已确认的 `missing`、`extra`、`side`，以及 `value` 和 `package`。有唯一对齐变换时，也列出 `position` 和 `angle`。某位号缺失、而一个新位号恰好落在它的期望位置时，按改名处理并记为 `swapped`，`with` 给出新位号，不再重复记为 `missing` 和 `extra`。
 - `pad_differences` 记录铜层差异（`pad_offset`、`no_copper`），`pad_checked` 是参与铜层核对的器件数。`pad_skipped` 为真表示给出了 Gerber 但未找到唯一对齐，因而跳过铜层核对。
 - `anchor_issues` 单独记录基准异常。`anchor_missing_baseline`、`anchor_missing_delivery`、`anchor_missing_both` 分别表示缺在基准表、送厂表或两表，`anchor_side` 表示板面不一致。
 - 报告同时记录两表行数、基准位号和本次容差。输入无效时输出 `input_error`、`field` 和 `message`。
