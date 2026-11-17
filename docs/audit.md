@@ -25,34 +25,34 @@
 2. 按配置尝试四分之一圈旋转。所有基准须存在于两张表且板面一致。两表各自基准的最长连线以及至少一个点到该连线的垂距都要大于两倍基准容差，避免用近共线点确认变换。
 3. 每个候选先算出各基准点单独对齐所需的平移量。用这些平移量的最小包围圆圆心作为全板平移，使最大二维残差最小。实作枚举由一至三个点确定的圆心并核对所有基准，计算使用双精度。每个基准点的实测残差都在容差内，候选才通过。通过的候选多于一个时保留歧义。参见 [最小包围圆的支撑点定义](https://doc.cgal.org/latest/Bounding_volumes/classCGAL_1_1Min__circle__2.html)。
 4. 当 `alignment` 选用注册引擎时，第 3 步改为：对刚体、相似或仿射模型枚举 2 或 3 个点的最小样本，按基准容差统计一致集合，再在一致集合上重拟合；一致集合至少 3 个点且至多丢掉 1 个基准时，候选才通过。相似模型同时估计旋转与均匀尺度，仿射模型还能吸收错切与各向异性。
-5. 两张表始终按位号比较漏件、多件和错面。只有找到唯一候选时才比较位置和角度。两张表无差异且有未参与拟合的器件时，结果才为 `pass`。
+5. 两张表始终按位号比较漏件、多件和错面。只有找到唯一候选时才比较位置和角度。两张表无差异且有未参与拟合的器件时，如果没有要求铜层核验，结果为 `pass`。
 
 角度差按「送厂角度经方向、零位和整板旋转校正后减基准角度」计算，归入 `[-180°, 180°)`。错面的器件只报板面差异，因为它的坐标和角度可能用了另一套板面约定。器件专属封装零位和任意形变仍超出此工具的对齐范围；连续旋转和比例误差在注册引擎模式下由变换本身吸收。
 
 ## 铜层核对
 
-命令行可追加顶层和/或底层 Gerber（RS-274X）文件。工具把送厂坐标映射回基准坐标系，再与铜层比较：
+命令行可追加顶层、或按顶层加底层的顺序追加两个 Gerber（RS-274X）文件。工具只核验传入的板面，把送厂坐标映射回基准坐标系，再与铜层比较。Gerber 和基准坐标表应使用同一原点和坐标方向。
 
-- 解析 `FS` 格式、`MO` 单位、`C`/`R`/`O`/`P` 光圈、`D01`/`D02`/`D03`、`G36`/`G37` 区域、`LPD`/`LPC` 极性和 X2 `TO.C` / `TO.D` 属性。
-- 有 X2 属性时，按位号把所有暗色闪光焊盘聚成一组，用面积加权质心作为该器件的铜层中心，与送厂坐标比较；差值超过 `pad_tolerance_mm` 记为 `pad_offset`。
-- 没有 X2 属性时退化为覆盖率检查：送厂坐标必须落在某个暗色焊盘或区域内（允许 `pad_tolerance_mm` 的扩张），否则记为 `no_copper`。
-- 光圈宏和圆弧按近似处理，并写入 `warnings`；Gerber 与基准表应使用同一板坐标系。
+- 解析绝对坐标 `FS` 格式、`MO` 单位、`C`/`R`/`O`/`P` 光圈、`D01`/`D02`/`D03`、`G36`/`G37` 区域和 `LPD`/`LPC` 极性。焊盘归属优先用 X2 `TO.P` 的位号，其次用 `TO.C`；`TD` 支持按属性名清除。见 [Gerber 格式规范](https://www.ucamco.com/en/gerber)。
+- 有位号归属时，计算该器件暗色闪光焊盘的面积加权中心，与送厂坐标比较。差值超过 `pad_tolerance_mm` 记为 `pad_offset`。该中心不一定等于不对称封装的贴装原点；用此结果判断贴装偏位前应确认原点定义。
+- 无归属时，只提供「附近有铜」或「未核验」线索。附近铜只从受支持的闪光和区域近似判断，既不代表焊盘归属，也不要求器件中心必须落在单个焊盘上。依赖未支持光圈宏的文件报输入错误；圆弧和跳过的宏定义会产生 `pad_warnings`。
 - 两份表都带 `Val` / `Package` 列时，还会逐位号比较型号与封装，差异记为 `value` 与 `package`。
 
-铜层差异写入 `pad_differences`，与器件差异 `differences` 分开统计；任一非空，结论即为 `different`。
+有唯一变换时，只要确认了一项差异，结论即为 `different`。若无差异但所请求的铜层缺少位号证据，结论为 `indeterminate`。没有要求铜层核验时，继续沿用两表判定。
 
-## JSON 报告 v2
+## JSON 报告 v3
 
-- `status` 和 `reason` 表示结果及无法确认的原因。原因包括基准缺失或错面（`invalid_anchors`）、基准点接近共线（`degenerate_baseline_anchors`）、没有候选符合容差（`no_matching_frame`）、有多个候选（`ambiguous_frame`）、无独立核对点（`no_independent_components`）。
+- `status` 和 `reason` 表示结果及无法确认的原因。原因包括基准缺失或错面（`invalid_anchors`）、基准点接近共线（`degenerate_baseline_anchors`）、没有候选符合容差（`no_matching_frame`）、有多个候选（`ambiguous_frame`）、无独立核对点（`no_independent_components`）和铜层位号证据不足（`insufficient_pad_evidence`）。
 - `frame` 是唯一选中的变换，可能为空。包含 `rotation_deg`、`scale`、`delivery_bottom_x`、平移向量 `delivery_to_baseline_mm`、最大基准残差 `max_anchor_error_mm`。枚举模式下 `scale` 恒为 `1`，`rotation_deg` 为 90 的整数倍；注册引擎模式下两者都是连续估计值。
 - `candidate_frames` 列出通过基准检查的候选。`rejected_frames` 用 `anchor_tolerance_exceeded` 标记超出容差的候选，并附该候选的 `frame`。`degenerate_delivery_anchors` 表示该底面约定下的基准分布退化，此时只给出约定和原因。
 - 每个算出平移的 `frame` 都含 `anchor_residuals` 和 `worst_anchor_refs`。逐点残差按配置里的基准顺序给出位号、对齐后送厂点减基准点的 `delta_x_mm`、`delta_y_mm`、二维距离 `distance_mm`、是否在基准容差内以及是否进入一致集合的 `inlier`。`worst_anchor_refs` 包含达到最大残差的全部位号。残差可用于定位复核对象，同一组基准可能有多个并列最差点。
 - `differences` 记录器件差异。即使整体状态为 `indeterminate`，仍列出已确认的 `missing`、`extra`、`side`，以及 `value` 和 `package`。有唯一对齐变换时，也列出 `position` 和 `angle`。某位号缺失、而一个新位号恰好落在它的期望位置时，按改名处理并记为 `swapped`，`with` 给出新位号，不再重复记为 `missing` 和 `extra`。
-- `pad_differences` 记录铜层差异（`pad_offset`、`no_copper`），`pad_checked` 是参与铜层核对的器件数。`pad_skipped` 为真表示给出了 Gerber 但未找到唯一对齐，因而跳过铜层核对。
+- `pad_differences` 记录可归属到位号的 `pad_offset`。`pad_checked` 只计有归属的器件，包含超限器件；`pad_sides` 是用户传入的板面。`pad_status` 为 `not_requested`、`skipped`（无唯一对齐，等同 `pad_skipped: true`）、`incomplete`（缺位号证据）或 `complete`（证据齐全，可能仍有超限）。
+- `pad_evidence` 按位号和板面记录 `by_reference`、`copper_only` 或 `unverified`。`by_reference` 同时给出焊盘数、距离及是否在容差内。`pad_warnings` 按板面列出解析限制提示。
 - `anchor_issues` 单独记录基准异常。`anchor_missing_baseline`、`anchor_missing_delivery`、`anchor_missing_both` 分别表示缺在基准表、送厂表或两表，`anchor_side` 表示板面不一致。
 - 报告同时记录两表行数、基准位号和本次容差。输入无效时输出 `input_error`、`field` 和 `message`。
 
-从 v1 迁移时，在 `anchor_issues` 读取原先位于 `differences` 中的 `anchor_*`。输入配置、CLI 调用方式与退出码保持一致。
+从 v2 迁移时，改用 `pad_evidence` 判断是否有焊盘归属，不再依据 `no_copper`。调用方式不变，原本证据不足仍通过的输入现在返回退出码 2。从 v1 迁移时，在 `anchor_issues` 读取原先位于 `differences` 的 `anchor_*`。
 
 ## 源码入口
 
@@ -62,7 +62,7 @@
 | `policy.mbt` | 配置解析及输入范围 |
 | `geom.mbt` | 焊盘形状、多边形面积/质心/包含测试 |
 | `gerber.mbt` | RS-274X 子集解析与 X2 属性归属 |
-| `padcheck.mbt` | 焊盘聚合、质心比较与覆盖率检查 |
+| `padcheck.mbt` | 位号归属、焊盘中心比较和附近有铜的线索 |
 | `transform.mbt` | 二维仿射变换类型与旋转、尺度、平移的读取 |
 | `register.mbt` | 刚体、相似、仿射的闭式估计与确定性 RANSAC |
 | `report.mbt` | 自包含 HTML 报告与 SVG 板面示意图 |

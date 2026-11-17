@@ -29,17 +29,18 @@ pub fn gerber_pads(document : GerberDocument) -> Array[CopperPad] {
 }
 
 ///|
-/// Group pads by their X2 component reference. Pads without an attribution are
-/// dropped; the caller falls back to a coverage test in that case.
+/// Group pads by their X2 component reference.
 pub fn pad_groups(pads : Array[CopperPad]) -> Map[String, Array[CopperPad]] {
   let groups : Map[String, Array[CopperPad]] = Map([])
   for pad in pads {
     match pad.refdes {
-      Some(key) =>
+      Some(reference) => {
+        let key = designator(reference)
         match groups.get(key) {
           Some(group) => group.push(pad)
           None => groups[key] = [pad]
         }
+      }
       None => ()
     }
   }
@@ -47,9 +48,8 @@ pub fn pad_groups(pads : Array[CopperPad]) -> Map[String, Array[CopperPad]] {
 }
 
 ///|
-/// Area-weighted centre of a pad group. Solder paste and copper mass are
-/// dominated by the larger pads, which is the centre a placement coordinate
-/// should point at.
+/// Area-weighted centre of a pad group. This is a geometric reference, which
+/// may differ from the placement origin of an asymmetric footprint.
 pub fn copper_centroid(pads : Array[CopperPad]) -> Point {
   let mut total = 0.0
   let mut x = 0.0
@@ -66,69 +66,102 @@ pub fn copper_centroid(pads : Array[CopperPad]) -> Point {
 }
 
 ///|
-/// True when any dark flash or region covers `point`, allowing `tolerance` mm of
-/// slack around the pad outline.
+/// Approximate nearby copper from flashes and regions. This cannot establish
+/// which component owns the copper, and does not account for drawn traces.
 pub fn copper_at(
   document : GerberDocument,
   point : Point,
   tolerance : Double,
 ) -> Bool {
+  let mut covered = false
   for feature in document.features {
-    if feature.dark {
-      match feature.kind {
-        Flash(shape, center) =>
-          if shape.expanded(tolerance).contains(center, point) {
-            return true
-          }
-        Region(points) => if polygon_contains(points, point) { return true }
-        _ => ()
-      }
+    let contains = match feature.kind {
+      Flash(shape, center) =>
+        if feature.dark {
+          shape.expanded(tolerance).contains(center, point)
+        } else {
+          shape.contains(center, point)
+        }
+      Region(points) => polygon_contains(points, point)
+      _ => false
+    }
+    if contains {
+      covered = feature.dark
     }
   }
-  false
+  covered
 }
 
 ///|
-/// Cross-check expected component positions against a Gerber layer.
-///
-/// When the layer carries X2 component attributes the check compares the
-/// area-weighted copper centroid of each component with its exported position,
-/// which catches a coordinate that sits on the wrong pad. Without X2 the check
-/// falls back to "is there dark copper at this point at all".
+priv enum PadEvidence {
+  ByReference(Int32, Point, Double)
+  CopperOnly
+  Unverified
+}
+
+///|
+fn pad_evidence(
+  document : GerberDocument,
+  refdes : Array[String],
+  positions : Array[Point],
+  tolerance_mm : Double,
+) -> Array[PadEvidence] {
+  let groups = pad_groups(gerber_pads(document))
+  let evidence = []
+  let count = positions.length().min(refdes.length())
+  for i in 0..<count {
+    let point = positions[i]
+    evidence.push(
+      match groups.get(designator(refdes[i])) {
+        Some(group) if group.any(pad => pad.area > 0.0) => {
+          let delta = difference(point, copper_centroid(group))
+          ByReference(group.length(), delta, magnitude(delta))
+        }
+        _ =>
+          if copper_at(document, point, tolerance_mm) {
+            CopperOnly
+          } else {
+            Unverified
+          }
+      },
+    )
+  }
+  evidence
+}
+
+///|
+fn pad_finding(
+  refdes : String,
+  evidence : PadEvidence,
+  tolerance : Double,
+) -> Json? {
+  match evidence {
+    ByReference(_, delta, distance) if distance > tolerance =>
+      Some({
+        "ref": Json(refdes),
+        "kind": Json("pad_offset"),
+        "delta_x_mm": Json(delta.x),
+        "delta_y_mm": Json(delta.y),
+        "distance_mm": Json(distance),
+      })
+    _ => None
+  }
+}
+
+///|
+/// Return attributable pad-centre offsets beyond tolerance. The audit report
+/// also exposes the evidence for coordinates whose ownership is unknown.
 pub fn check_pads(
   document : GerberDocument,
   refdes : Array[String],
   positions : Array[Point],
   tolerance_mm : Double,
 ) -> Array[Json] {
-  let pads = gerber_pads(document)
-  let groups = pad_groups(pads)
-  let attributed = !groups.is_empty()
-  let findings : Array[Json] = []
-  let count = positions.length().min(refdes.length())
-  for i in 0..<count {
-    let key = refdes[i]
-    let point = positions[i]
-    if attributed {
-      match groups.get(key) {
-        Some(group) => {
-          let centroid = copper_centroid(group)
-          let delta = difference(point, centroid)
-          let distance = magnitude(delta)
-          if distance > tolerance_mm {
-            findings.push({
-              "ref": Json(key),
-              "kind": Json("pad_offset"),
-              "delta_x_mm": Json(delta.x),
-              "delta_y_mm": Json(delta.y),
-              "distance_mm": Json(distance),
-            })
-          }
-        }
-        None => ()
-      }
-    } else if !copper_at(document, point, tolerance_mm) {
-      findings.push({ "ref": Json(key), "kind": Json("no_copper") })
+  let items = pad_evidence(document, refdes, positions, tolerance_mm)
+  let findings = []
+  for i in 0..<items.length() {
+    if pad_finding(refdes[i], items[i], tolerance_mm) is Some(item) {
+      findings.push(item)
     }
   }
   findings

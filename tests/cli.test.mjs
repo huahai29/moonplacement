@@ -19,7 +19,7 @@ function run(args, expectedExit) {
 
 test('normalizes inches, origin shift and bottom X', () => {
   const report = run([baseline, delivery, policy], 0);
-  assert.equal(report.schema_version, 2);
+  assert.equal(report.schema_version, 3);
   assert.equal(report.status, 'pass');
   assert.equal(report.frame.delivery_bottom_x, 'negated');
   assert.ok(Math.abs(report.frame.delivery_to_baseline_mm.x - 5) < 0.00002);
@@ -55,7 +55,7 @@ test('registers a continuous rotation and scale from the anchors', () => {
     [baseline, 'examples/delivery-similarity.csv', 'examples/policy-similarity.json'],
     0,
   );
-  assert.equal(report.schema_version, 2);
+  assert.equal(report.schema_version, 3);
   assert.equal(report.status, 'pass');
   assert.equal(report.frame.delivery_bottom_x, 'negated');
   assert.ok(Math.abs(report.frame.rotation_deg - 2.5) < 1e-4);
@@ -69,7 +69,36 @@ test('cross-checks delivery coordinates against a Gerber copper layer', () => {
   const report = run([baseline, delivery, policy, 'examples/top-copper.gbr'], 0);
   assert.equal(report.status, 'pass');
   assert.equal(report.pad_checked, 5);
+  assert.equal(report.pad_status, 'complete');
+  assert.deepEqual(report.pad_sides, ['top']);
+  assert.ok(report.pad_evidence.every(({evidence}) => evidence.within_tolerance));
   assert.deepEqual(report.pad_differences, []);
+});
+
+test('incomplete pad ownership never becomes a pass or hides a known offset', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'moonplacement-copper-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const copper = join(directory, 'partial.gbr');
+  const good = readFileSync('examples/top-copper.gbr', 'utf8');
+  const shifted = good.replace('X24000000Y13000000D03', 'X26000000Y13000000D03');
+  const find = (report, ref) => report.pad_evidence.find(item => item.ref === ref).evidence;
+  for (const [text, status] of [[good, 'copper_only'], [shifted, 'unverified']]) {
+    writeFileSync(copper, text.replace('%TO.C,D1*%', '%TD*%'));
+    const report = run([baseline, delivery, policy, copper], 2);
+    assert.equal(report.reason, 'insufficient_pad_evidence');
+    assert.equal(report.pad_status, 'incomplete');
+    assert.equal(report.pad_checked, 4);
+    assert.equal(find(report, 'D1').status, status);
+    assert.deepEqual(report.pad_differences, []);
+  }
+  const pins = shifted.replace(/%TO\.C,([^*]+)\*%/g, '%TO.P,$1,1*%');
+  writeFileSync(copper, pins.replace('X26000000Y13000000D03', 'X24300000Y13000000D03')
+    .replace('%TO.P,U3,1*%', '%TD*%'));
+  const report = run([baseline, delivery, policy, copper], 1);
+  assert.equal(report.pad_status, 'incomplete');
+  assert.equal(find(report, 'U3').status, 'copper_only');
+  assert.equal(find(report, 'D1').within_tolerance, false);
+  assert.deepEqual(report.pad_differences.map(item => item.ref), ['D1']);
 });
 
 test('reports a pad offset when copper disagrees with the placement', () => {
@@ -101,7 +130,7 @@ test('writes an HTML report with a board map', t => {
 test('invalid arguments and files return a structured input error', t => {
   const invalid = run([], 64);
   assert.equal(invalid.field, 'arguments');
-  assert.equal(invalid.schema_version, 2);
+  assert.equal(invalid.schema_version, 3);
   assert.equal(run([baseline, 'examples/missing.csv', policy], 64).field, 'examples/missing.csv');
   assert.equal(run([baseline, 'examples', policy], 64).field, 'examples');
 

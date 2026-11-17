@@ -110,6 +110,13 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
   let reason = json_string(report, "reason")
   let differences = json_array(report, "differences")
   let pad_differences = json_array(report, "pad_differences")
+  let pad_evidence = json_array(report, "pad_evidence")
+  let pad_state = match json_string(report, "pad_status") {
+    "complete" => "已取得全部位号证据"
+    "incomplete" => "部分器件缺少位号证据"
+    "skipped" => "未能对齐，未核验"
+    _ => "未提供铜层"
+  }
   let problems : Map[String, Bool] = Map([])
   for item in differences {
     problems[json_string(item, "ref")] = true
@@ -202,7 +209,7 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
     "<p>状态：<b>\{escape_html(status)}</b>\{reason_text}</p>",
   )
   html.write_string(
-    "<p>基准器件 \{json_int(report, "baseline_count")} 个 · 送厂器件 \{json_int(report, "delivery_count")} 个 · 铜层核对 \{json_int(report, "pad_checked")} 个</p>",
+    "<p>基准器件 \{json_int(report, "baseline_count")} 个 · 送厂器件 \{json_int(report, "delivery_count")} 个</p>",
   )
   html.write_string(svg.to_string())
   html.write_string(
@@ -211,7 +218,34 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
   html.write_string("<h2>器件差异</h2>")
   html.write_string(differences_table(differences))
   html.write_string("<h2>铜层核对</h2>")
+  html.write_string(
+    "<p>\{pad_state}：按位号核验 \{json_int(report, "pad_checked")} / \{pad_evidence.length()}。</p>",
+  )
   html.write_string(differences_table(pad_differences))
+  let mut listed_incomplete = false
+  for item in pad_evidence {
+    if json_get(item, "evidence") is Some(evidence) {
+      let description = match json_string(evidence, "status") {
+        "copper_only" => "附近有铜，位号归属未知"
+        "unverified" => "缺少可用的焊盘证据"
+        _ => continue
+      }
+      if !listed_incomplete {
+        html.write_string("<ul>")
+        listed_incomplete = true
+      }
+      let reference = escape_html(json_string(item, "ref"))
+      let side = if json_string(item, "side") == "top" {
+        "顶面"
+      } else {
+        "底面"
+      }
+      html.write_string("<li>\{reference}（\{side}）：\{description}</li>")
+    }
+  }
+  if listed_incomplete {
+    html.write_string("</ul>")
+  }
   html.write_string("<h2>原始 JSON</h2>")
   html.write_string("<pre>\{escape_html(report.stringify(indent=2))}</pre>")
   html.write_string("</body></html>")

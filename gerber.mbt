@@ -50,6 +50,7 @@ priv struct GerberState {
   mut region : Bool
   mut region_points : Array[Point]
   mut refdes : String?
+  mut pin_refdes : String?
   features : Array[GerberFeature]
   warnings : Array[String]
 }
@@ -247,21 +248,30 @@ fn parse_polarity(state : GerberState, chars : Array[Char]) -> Unit {
 
 ///|
 fn parse_attribute(state : GerberState, chars : Array[Char]) -> Unit {
-  if chars.length() >= 4 && chars[2] == '.' {
-    match chars[3] {
-      'C' => {
-        let value = if chars.length() > 5 {
-          chars_to_string(chars, 5)
-        } else {
-          ""
-        }
-        if !value.is_empty() {
-          state.refdes = Some(value)
-        }
-      }
-      'D' => state.refdes = None
-      _ => ()
+  if chars.length() < 5 || chars[2] != '.' || chars[4] != ',' {
+    return
+  }
+  let value = StringBuilder()
+  for index in 5..<chars.length() {
+    if chars[index] == ',' {
+      break
     }
+    value.write_char(chars[index])
+  }
+  let refdes = value.to_string()
+  let attribute = if refdes.is_empty() { None } else { Some(refdes) }
+  match chars[3] {
+    'C' => state.refdes = attribute
+    'P' => state.pin_refdes = attribute
+    _ => ()
+  }
+}
+
+///|
+fn feature_refdes(state : GerberState) -> String? {
+  match state.pin_refdes {
+    Some(_) => state.pin_refdes
+    None => state.refdes
   }
 }
 
@@ -310,7 +320,7 @@ fn flush_region(state : GerberState) -> Unit {
     state.features.push({
       kind: Region(state.region_points),
       dark: state.dark,
-      refdes: state.refdes,
+      refdes: feature_refdes(state),
     })
   }
   state.region_points = []
@@ -389,7 +399,7 @@ fn process_operation(
         state.features.push({
           kind: Draw(shape, state.current, target),
           dark: state.dark,
-          refdes: state.refdes,
+          refdes: feature_refdes(state),
         })
       }
     }
@@ -399,7 +409,7 @@ fn process_operation(
       state.features.push({
         kind: Flash(shape, target),
         dark: state.dark,
-        refdes: state.refdes,
+        refdes: feature_refdes(state),
       })
     }
     _ => ()
@@ -427,9 +437,26 @@ fn process_statement(
         state.warnings.push("跳过光圈宏：\{statement}")
         return
       }
-      ('T', 'O') => return parse_attribute(state, chars)
+      ('T', 'O') => {
+        // Accept the old example's nonstandard reset spelling as well as TD.
+        if chars_to_string(chars, 2) == ".D" {
+          state.refdes = None
+          state.pin_refdes = None
+        } else {
+          parse_attribute(state, chars)
+        }
+        return
+      }
       ('T', 'D') => {
-        state.refdes = None
+        match chars_to_string(chars, 2) {
+          "" => {
+            state.refdes = None
+            state.pin_refdes = None
+          }
+          ".C" => state.refdes = None
+          ".P" => state.pin_refdes = None
+          _ => ()
+        }
         return
       }
       ('T', 'F') | ('T', 'A') => return
@@ -444,7 +471,7 @@ fn process_statement(
 ///
 /// Supported: format spec, mm/inch units, `C`/`R`/`O`/`P` apertures, `G01`
 /// linear interpolation, `D01`/`D02`/`D03`, `G36`/`G37` regions, `LPD`/`LPC`
-/// polarity and X2 `TO.C` component attributes. Aperture macros and arcs are
+/// polarity and X2 `TO.C` component / `TO.P` pin attributes. Macros and arcs are
 /// approximated and reported through `warnings`.
 pub fn parse_gerber(
   text : String,
@@ -461,6 +488,7 @@ pub fn parse_gerber(
     region: false,
     region_points: [],
     refdes: None,
+    pin_refdes: None,
     features: [],
     warnings: [],
   }

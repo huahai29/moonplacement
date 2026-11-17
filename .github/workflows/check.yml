@@ -38,21 +38,11 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends kicad
-          kicad-cli version
-          kicad-cli pcb export pos --side both --format csv --units mm -o _build/kicad-baseline.csv examples/two-sided.kicad_pcb
-          for mirror in direct negated; do
-            opts=()
-            if [ "$mirror" = negated ]; then opts=(--bottom-negate-x); fi
-            kicad-cli pcb export pos --side both --format csv --units in --use-drill-file-origin "${opts[@]}" -o _build/kicad-delivery.csv examples/two-sided.kicad_pcb
-            node _build/js/debug/build/cmd/main/main.js _build/kicad-baseline.csv _build/kicad-delivery.csv examples/policy.json > _build/kicad-report.json
-            node -e '
-              const assert = require("node:assert/strict");
-              const report = require("./_build/kicad-report.json");
-              const shift = report.frame.delivery_to_baseline_mm;
-              assert.equal(report.status, "pass");
-              assert.equal(report.baseline_count, 6);
-              assert.equal(report.delivery_count, 6);
-              assert.equal(report.frame.delivery_bottom_x, process.argv[1]);
-              assert.ok(Math.abs(shift.x - 5) < 0.001 && Math.abs(shift.y + 7) < 0.001);
-            ' "$mirror"
-          done
+          node tests/kicad-export.mjs
+      - name: 保存 KiCad 导出与核对报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kicad-evidence
+          path: _build/kicad-evidence
+          if-no-files-found: ignore

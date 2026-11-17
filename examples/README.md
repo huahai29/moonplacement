@@ -25,13 +25,30 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 
 ## 铜层核对示例
 
-`top-copper.gbr` 是手写的六器件顶层铜层（RS-274X），每个焊盘都带 X2 `TO.C` 位号属性。顶层器件与 `baseline.csv` 位置一致，可用它做焊盘级核对并导出 HTML：
+`top-copper.gbr` 是手写的顶层铜层（RS-274X）。其中五颗顶面器件与 `baseline.csv` 一致，每个焊盘都带 X2 `TO.C` 位号属性：
 
 ```sh
 node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/delivery-ok.csv examples/policy.json examples/top-copper.gbr --html _build/report.html
 ```
 
 预期为 `pass`，`pad_checked` 为 5，`pad_differences` 为空。把 `top-copper.gbr` 换成 `top-copper-shifted.gbr`（D1 的焊盘整体偏移 2 mm），预期改为 `different`，`pad_differences` 中只有 D1 的 `pad_offset`。
+
+## 铜层实导出验证
+
+安装 `kicad-cli` 后，在仓库根目录执行：
+
+```sh
+moon build --target js
+node tests/kicad-export.mjs
+```
+
+脚本用 KiCad 实际导出两份坐标表及顶、底 Gerber，再运行 MoonPlacement。KiCad 只用于生成验收数据，使用 MoonPlacement 核对已有文件时不用安装它。输出在 `_build/kicad-evidence/`，CI 也保存这份目录。
+
+| 用例 | 预期结果 |
+| --- | --- |
+| 两种底面 X 约定的正常导出 | `pass`，6 颗按位号核验，底面 C7 归集为一组双焊盘 |
+| 只有送厂表的 C7 偏移 0.30 mm | `different`，两表位置和铜层均指出底面 C7 |
+| 两份表的 C7 同时偏移 0.30 mm | 仅查两表为 `pass`，加入原铜层后为 `different`，唯一差异是 C7 的 `pad_offset` |
 
 ## 测试命令
 

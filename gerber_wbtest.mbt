@@ -48,8 +48,31 @@ test "copper coverage works without X2 attributes" {
   let document = parse_gerber(text, source="fixture")
   assert_true(copper_at(document, { x: 5.0, y: 5.0, }, 0.0))
   assert_true(!copper_at(document, { x: 9.0, y: 9.0, }, 0.0))
-  let findings = check_pads(document, ["U1"], [{ x: 9.0, y: 9.0, }], 0.0)
-  assert_eq(findings.length(), 1)
+  let evidence = pad_evidence(
+    document,
+    ["U1", "U2"],
+    [{ x: 9.0, y: 9.0, }, { x: 5.0, y: 5.0, }],
+    0.0,
+  )
+  assert_true(evidence is [Unverified, CopperOnly])
+}
+
+///|
+test "TO.P supplies the owner and X2 deletion respects the named attribute" {
+  let text = "%FSLAX46Y46*%%MOMM*%%ADD10C,1.0*%D10*" +
+    "%TO.C,legacy*%%TO.P,R1,2,pin*%%TO.N,N1*%%TD.N*%X1000000Y1000000D03*" +
+    "%TD.P*%%TO.CVal,something*%X2000000Y1000000D03*" +
+    "%TD*%X3000000Y1000000D03*M02*"
+  let pads = gerber_pads(parse_gerber(text, source="fixture"))
+  assert_eq(pads.map(pad => pad.refdes), [Some("R1"), Some("legacy"), None])
+}
+
+///|
+test "clear flashes remove nearby-copper evidence" {
+  let text = "%FSLAX46Y46*%%MOMM*%%ADD10C,1.0*%D10*X5000000Y5000000D03*" +
+    "%LPC*%X5000000Y5000000D03*M02*"
+  let document = parse_gerber(text, source="fixture")
+  assert_true(!copper_at(document, { x: 5.0, y: 5.0, }, 0.0))
 }
 
 ///|

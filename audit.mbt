@@ -1,6 +1,6 @@
 ///|
 /// Schema used by audit results and CLI input errors.
-pub const REPORT_SCHEMA_VERSION : Int32 = 2
+pub const REPORT_SCHEMA_VERSION : Int32 = 3
 
 ///|
 pub(all) enum Verdict {
@@ -265,48 +265,62 @@ pub fn audit(
       evidence.push({ "ref": Json(key), "kind": Json("extra") })
     }
   }
-  let pad_evidence : Array[Json] = []
+  let pad_differences : Array[Json] = []
+  let pad_results : Array[Json] = []
+  let pad_warnings : Array[Json] = []
+  let pad_sides : Array[Json] = []
   let mut pad_checked = 0
-  let mut pad_skipped = false
-  match frame {
-    Some(chosen) => {
-      match top_gerber {
-        Some(document) => {
-          let targets = side_targets(delivery, Top, chosen, policy)
-          let found = check_pads(
-            document,
-            targets.refs,
-            targets.points,
-            policy.pad_mm,
-          )
-          for item in found {
-            pad_evidence.push(item)
+  for layer in [(Top, top_gerber), (Bottom, bottom_gerber)] {
+    guard layer is (side, Some(document)) else { continue }
+    pad_sides.push(Json(side_name(side)))
+    for warning in document.warnings {
+      pad_warnings.push({
+        "side": Json(side_name(side)),
+        "message": Json(warning),
+      })
+    }
+    guard frame is Some(chosen) else { continue }
+    let targets = side_targets(delivery, side, chosen, policy)
+    let items = pad_evidence(
+      document,
+      targets.refs,
+      targets.points,
+      policy.pad_mm,
+    )
+    for i in 0..<items.length() {
+      let refdes = targets.refs[i]
+      let details : Json = match items[i] {
+        ByReference(pad_count, _, distance) => {
+          pad_checked += 1
+          {
+            "status": Json("by_reference"),
+            "pad_count": Json(pad_count),
+            "distance_mm": Json(distance),
+            "within_tolerance": Json(distance <= policy.pad_mm),
           }
-          pad_checked += targets.refs.length()
         }
-        None => ()
+        CopperOnly => { "status": Json("copper_only") }
+        Unverified => { "status": Json("unverified") }
       }
-      match bottom_gerber {
-        Some(document) => {
-          let targets = side_targets(delivery, Bottom, chosen, policy)
-          let found = check_pads(
-            document,
-            targets.refs,
-            targets.points,
-            policy.pad_mm,
-          )
-          for item in found {
-            pad_evidence.push(item)
-          }
-          pad_checked += targets.refs.length()
-        }
-        None => ()
+      pad_results.push({
+        "ref": Json(refdes),
+        "side": Json(side_name(side)),
+        "evidence": details,
+      })
+      if pad_finding(refdes, items[i], policy.pad_mm) is Some(item) {
+        pad_differences.push(item)
       }
     }
-    None =>
-      if top_gerber is Some(_) || bottom_gerber is Some(_) {
-        pad_skipped = true
-      }
+  }
+  let pad_skipped = !pad_sides.is_empty() && frame is None
+  let pad_status = if pad_sides.is_empty() {
+    "not_requested"
+  } else if pad_skipped {
+    "skipped"
+  } else if pad_checked < pad_results.length() {
+    "incomplete"
+  } else {
+    "complete"
   }
   let (verdict, reason) = if !anchor_issues.is_empty() {
     (Indeterminate, Json("invalid_anchors"))
@@ -316,8 +330,10 @@ pub fn audit(
     (Indeterminate, Json("no_matching_frame"))
   } else if frame is None {
     (Indeterminate, Json("ambiguous_frame"))
-  } else if !evidence.is_empty() || !pad_evidence.is_empty() {
+  } else if !evidence.is_empty() || !pad_differences.is_empty() {
     (Different, Json(null))
+  } else if pad_status == "incomplete" {
+    (Indeterminate, Json("insufficient_pad_evidence"))
   } else if baseline.length() == pairs.length() {
     (Indeterminate, Json("no_independent_components"))
   } else {
@@ -340,9 +356,13 @@ pub fn audit(
     "baseline_count": Json(baseline.length()),
     "delivery_count": Json(delivery.length()),
     "differences": Json(evidence),
-    "pad_differences": Json(pad_evidence),
+    "pad_differences": Json(pad_differences),
     "pad_checked": Json(pad_checked),
     "pad_skipped": Json(pad_skipped),
+    "pad_status": Json(pad_status),
+    "pad_sides": Json(pad_sides),
+    "pad_evidence": Json(pad_results),
+    "pad_warnings": Json(pad_warnings),
     "tolerances": {
       "position_mm": Json(policy.position_mm),
       "angle_deg": Json(policy.angle_deg),
