@@ -50,6 +50,21 @@ test('reports an ambiguous frame with evidence for both conventions', () => {
   assert.ok(report.candidate_frames.every(frame => frame.anchor_residuals.length === 3));
 });
 
+test('registers a continuous rotation and scale from the anchors', () => {
+  const report = run(
+    [baseline, 'examples/delivery-similarity.csv', 'examples/policy-similarity.json'],
+    0,
+  );
+  assert.equal(report.schema_version, 2);
+  assert.equal(report.status, 'pass');
+  assert.equal(report.frame.delivery_bottom_x, 'negated');
+  assert.ok(Math.abs(report.frame.rotation_deg - 2.5) < 1e-4);
+  assert.ok(Math.abs(report.frame.scale - 1.0003) < 1e-6);
+  assert.ok(Math.abs(report.frame.delivery_to_baseline_mm.x - 1.2) < 1e-5);
+  assert.ok(report.frame.anchor_residuals.every(anchor => anchor.inlier));
+  assert.deepEqual(report.differences, []);
+});
+
 test('invalid arguments and files return a structured input error', t => {
   const invalid = run([], 64);
   assert.equal(invalid.field, 'arguments');

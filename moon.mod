@@ -10,6 +10,6 @@ license = "MIT"
 
 keywords = [ "pcb", "smt", "kicad", "placement" ]
 
-description = "Audit PCB assembly placement files against a trusted board export."
+description = "Audit and register PCB assembly placement coordinates against a trusted board export."
 
 preferred_target = "js"

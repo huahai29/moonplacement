@@ -13,6 +13,16 @@ node _build/js/debug/build/cmd/main/main.js _build/kicad-baseline.csv _build/kic
 
 预期是 `pass`，基准表和送厂表均为六个器件，底面约定识别为 `negated`，平移约为 `(5, -7) mm`。检查实际 CSV 后，也可以把第二条导出命令中的 `--bottom-negate-x` 去掉复跑，预期会改为 `direct`。
 
+## 注册引擎示例
+
+`delivery-similarity.csv` 由 `baseline.csv` 整体旋转 2.5°、缩放 1.0003、平移约 1.2 mm 后对底面 X 取反得到。用 `policy-similarity.json` 复现：
+
+```sh
+node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/delivery-similarity.csv examples/policy-similarity.json
+```
+
+预期为 `pass`，`frame.rotation_deg` 约为 2.5，`frame.scale` 约为 1.0003，`frame.delivery_bottom_x` 为 `negated`。该示例走注册引擎的连续相似变换，而不是四分之一圈枚举。
+
 ## 测试命令
 
 ```sh

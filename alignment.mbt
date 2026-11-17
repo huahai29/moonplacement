@@ -5,12 +5,19 @@ priv struct AnchorPair {
 }
 
 ///|
+/// A delivery-to-baseline frame accepted by the alignment step.
+///
+/// The transform replaces the old (quarter turns, translation) pair so that the
+/// quarter-turn search and the registration engine produce the same downstream
+/// comparison code.
 priv struct Frame {
-  quarter_turns : Int32
   negate_bottom_x : Bool
-  translation : Point
+  rotation_deg : Double
+  scale : Double
+  transform : Transform2D
   anchor_residuals : Array[Point]
   max_anchor_error_mm : Double
+  inlier_mask : Array[Bool]
 }
 
 ///|
@@ -98,17 +105,50 @@ fn fit_frame(
     offsets.push(difference(baseline[i], rotation(point, turns)))
   }
   let translation = minimax_translation(offsets)
+  let transform = Transform2D::quarter_turns(turns, translation)
   let anchor_residuals = offsets.map(offset => difference(translation, offset))
   let mut max_anchor_error_mm = 0.0
   for residual in anchor_residuals {
     max_anchor_error_mm = max_anchor_error_mm.max(magnitude(residual))
   }
+  let inlier_mask : Array[Bool] = []
+  for _ in 0..<delivery.length() {
+    inlier_mask.push(true)
+  }
   {
-    quarter_turns: turns,
     negate_bottom_x,
-    translation,
+    rotation_deg: (turns * 90).to_double(),
+    scale: 1.0,
+    transform,
     anchor_residuals,
     max_anchor_error_mm,
+    inlier_mask,
+  }
+}
+
+///|
+fn frame_from_registration(
+  registration : Registration,
+  negate_bottom_x : Bool,
+  source : Array[Point],
+  target : Array[Point],
+) -> Frame {
+  let anchor_residuals : Array[Point] = []
+  let mut max_anchor_error_mm = 0.0
+  for i in 0..<source.length() {
+    let predicted = registration.transform.apply(source[i])
+    let delta = difference(predicted, target[i])
+    anchor_residuals.push(delta)
+    max_anchor_error_mm = max_anchor_error_mm.max(magnitude(delta))
+  }
+  {
+    negate_bottom_x,
+    rotation_deg: registration.rotation_deg,
+    scale: registration.scale,
+    transform: registration.transform,
+    anchor_residuals,
+    max_anchor_error_mm,
+    inlier_mask: registration.inlier_mask,
   }
 }
 
@@ -128,10 +168,12 @@ fn frame_json(frame : Frame, policy : Policy) -> Json {
       "delta_y_mm": Json(delta.y),
       "distance_mm": Json(distance),
       "within_anchor_tolerance": Json(distance <= policy.anchor_mm),
+      "inlier": Json(frame.inlier_mask[i]),
     })
   }
   {
-    "rotation_deg": Json(frame.quarter_turns * 90),
+    "rotation_deg": Json(frame.rotation_deg),
+    "scale": Json(frame.scale),
     "delivery_bottom_x": Json(
       if frame.negate_bottom_x {
         "negated"
@@ -140,8 +182,8 @@ fn frame_json(frame : Frame, policy : Policy) -> Json {
       },
     ),
     "delivery_to_baseline_mm": {
-      "x": Json(frame.translation.x),
-      "y": Json(frame.translation.y),
+      "x": Json(frame.transform.c),
+      "y": Json(frame.transform.f),
     },
     "max_anchor_error_mm": Json(frame.max_anchor_error_mm),
     "anchor_residuals": Json(residuals),
@@ -192,16 +234,51 @@ fn candidate_frames(
       })
       continue
     }
-    for turns in policy.rotations {
-      let frame = fit_frame(baseline, delivery, turns, mirror)
-      if frame.max_anchor_error_mm <= policy.anchor_mm {
-        accepted.push(frame)
-      } else {
-        rejected.push({
-          "frame": frame_json(frame, policy),
-          "reason": Json("anchor_tolerance_exceeded"),
-        })
-      }
+    match policy.alignment {
+      Enumerate =>
+        for turns in policy.rotations {
+          let frame = fit_frame(baseline, delivery, turns, mirror)
+          if frame.max_anchor_error_mm <= policy.anchor_mm {
+            accepted.push(frame)
+          } else {
+            rejected.push({
+              "frame": frame_json(frame, policy),
+              "reason": Json("anchor_tolerance_exceeded"),
+            })
+          }
+        }
+      Register(model) =>
+        match register(delivery, baseline, model, policy.anchor_mm) {
+          None =>
+            rejected.push({
+              "delivery_bottom_x": Json(
+                if mirror {
+                  "negated"
+                } else {
+                  "direct"
+                },
+              ),
+              "reason": Json("degenerate_delivery_anchors"),
+            })
+          Some(registration) => {
+            let frame = frame_from_registration(
+              registration, mirror, delivery, baseline,
+            )
+            let inliers = registration.inlier_count()
+            // Tolerate a single displaced anchor, but never accept a subset
+            // that only fits because the mirror convention is wrong.
+            if registration.max_mm <= policy.anchor_mm &&
+              inliers >= 3 &&
+              inliers + 1 >= registration.residuals_mm.length() {
+              accepted.push(frame)
+            } else {
+              rejected.push({
+                "frame": frame_json(frame, policy),
+                "reason": Json("anchor_tolerance_exceeded"),
+              })
+            }
+          }
+        }
     }
   }
   { baseline_has_area, accepted, rejected, }

@@ -3,6 +3,7 @@ fn fixture_policy(
   anchors~ : Array[String] = ["A", "B", "C"],
   rotation~ : String = "0",
   bottom_x~ : String = "auto",
+  alignment~ : String = "enumerate",
 ) -> Policy raise InputError {
   let baseline : Json = {
     "unit": Json("mm"),
@@ -23,6 +24,7 @@ fn fixture_policy(
     "delivery": delivery,
     "anchors": Json(anchors),
     "rotation": Json(rotation),
+    "alignment": Json(alignment),
     "position_tolerance_mm": Json(0.1),
     "angle_tolerance_deg": Json(1),
     "anchor_tolerance_mm": Json(0.02),

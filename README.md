@@ -17,17 +17,26 @@ moon build --target js
 node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/delivery-ok.csv examples/policy.json
 ```
 
-三个样例共用 `examples/baseline.csv`。替换命令中最后两个文件即可复现另外两种结果。
+四个样例共用 `examples/baseline.csv`。替换命令中最后两个文件即可复现另外三种结果。
 
 | 送厂表 | 配置 | 预期结果 |
 | --- | --- | --- |
 | `examples/delivery-ok.csv` | `examples/policy.json` | `pass`。送厂表改用英寸、换了原点，并对底面 X 取反。对齐后器件均在容差内。 |
 | `examples/delivery-errors.csv` | `examples/policy.json` | `different`。C7 漏件，D1 错面，J1 偏移约 1 mm，U3 角度相差 180°，R99 多出。 |
 | `examples/delivery-ok.csv` | `examples/policy-ambiguous.json` | `indeterminate`。配置只选了顶面基准，两种底面 X 约定均满足基准检查。 |
+| `examples/delivery-similarity.csv` | `examples/policy-similarity.json` | `pass`。送厂表整体旋转 2.5°、缩放 1.0003、平移约 1.2 mm，注册引擎直接解出连续变换。 |
+
+## 注册引擎
+
+默认 `rotation` 在 0/90/180/270 四个四分之一圈候选里枚举。若送厂表可能整体任意旋转、带轻微缩放，或个别基准点录入错误，可在配置里写 `"alignment": "rigid"`、`"similarity"` 或 `"affine"`：工具改用注册引擎直接从基准点拟合连续变换，并用一致性集合丢弃至多一个异常基准。
+
+- `rigid` 估计旋转和平移；`similarity` 再加一个均匀尺度；`affine` 还能吸收错切与各向异性。
+- 刚体和相似用闭式最小二乘，仿射用三参数法方程；三者都以 2 或 3 个点的最小样本做确定性 RANSAC，再在一致集合上重拟合。
+- 报告给出旋转角、尺度、平移、逐基准残差、RMS 和一致集合。`register` 是公开函数，输入两组点即可单独调用。
 
 ## 怎么核对
 
-工具先统一单位，按配置尝试底面 X 约定和整板旋转。对每种候选，用可信器件的位置求平移，让最大基准残差尽可能小。只有唯一候选通过时，才逐件比较位置和角度。对齐失败或有歧义时，仍按位号列出能确认的漏件、多件和错面。
+工具先统一单位，按配置尝试底面 X 约定。默认在四个四分之一圈里枚举整板旋转，对每种候选用可信器件的位置求平移，让最大基准残差尽可能小；配置 `alignment` 后改为从基准点直接拟合连续变换。只有唯一候选通过时，才逐件比较位置和角度。对齐失败或有歧义时，仍按位号列出能确认的漏件、多件和错面。
 
 CSV 解析、单位换算、对齐和报告都由 MoonBit 实现。Node.js 为命令行提供文件读取和退出码。
 
@@ -48,6 +57,6 @@ CSV 解析、单位换算、对齐和报告都由 MoonBit 实现。Node.js 为�
 
 ## 验证
 
-CI 检查构建、四个 MoonBit 后端和 CLI 退出码。仓库附六器件双面 KiCad 测试板，CI 用不同单位、原点和底面 X 选项实际导出并复核。另有一条容差回归用例，确认基准容差为 0.020 mm 时，最大残差 0.0175 mm 的对齐方式能够通过。 [复现步骤](examples/README.md) · [CI 记录](https://github.com/huahai29/moonplacement/actions/workflows/check.yml)
+CI 检查构建、四个 MoonBit 后端和 CLI 退出码。仓库附六器件双面 KiCad 测试板，CI 用不同单位、原点和底面 X 选项实际导出并复核。另有一条容差回归用例，确认基准容差为 0.020 mm 时，最大残差 0.0175 mm 的对齐方式能够通过。注册引擎另有相似、刚体、仿射恢复，异常基准剔除、退化基准拒绝和连续旋转示例的用例。 [复现步骤](examples/README.md) · [CI 记录](https://github.com/huahai29/moonplacement/actions/workflows/check.yml)
 
 [MIT 许可证](LICENSE)

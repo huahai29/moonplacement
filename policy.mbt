@@ -13,6 +13,16 @@ priv enum BottomX {
 }
 
 ///|
+/// How the anchor set is turned into a delivery-to-baseline frame.
+///
+/// `Enumerate` keeps the original quarter-turn search. `Register` hands the
+/// anchors to the registration engine and estimates a continuous transform.
+priv enum AlignmentMode {
+  Enumerate
+  Register(TransformModel)
+}
+
+///|
 priv struct FileConvention {
   units : Units
   bottom_x : BottomX
@@ -27,6 +37,7 @@ pub struct Policy {
   priv delivery : FileConvention
   priv anchors : Array[String]
   priv rotations : Array[Int32]
+  priv alignment : AlignmentMode
   priv position_mm : Double
   priv angle_deg : Double
   priv anchor_mm : Double
@@ -106,12 +117,43 @@ fn tolerance(
 }
 
 ///|
+/// Read the optional `alignment` selector. The field is absent in every shipped
+/// configuration, so `enumerate` stays the backwards-compatible default.
+fn read_alignment(document : Json) -> AlignmentMode raise InputError {
+  let field = match document {
+    Object(fields) => fields.get("alignment")
+    _ => None
+  }
+  match field {
+    None => Enumerate
+    Some(value) =>
+      match value {
+        String(text) =>
+          match text {
+            "enumerate" | "quarter" => Enumerate
+            "rigid" => Register(Rigid)
+            "similarity" => Register(Similarity)
+            "affine" => Register(Affine)
+            _ =>
+              raise InvalidInput(
+                "alignment", "使用 enumerate、rigid、similarity 或 affine",
+              )
+          }
+        _ => raise InvalidInput("alignment", "alignment 必须是字符串")
+      }
+  }
+}
+
+///|
 /// Parse the coordinate conventions and tolerances for a comparison.
 pub fn read_policy(input : String) -> Policy raise InputError {
   if input.length() > 65_536 {
     raise InvalidInput("policy", "配置文件超过 65536 字符单元")
   }
-  let raw : PolicyJson = @json.from_json(@json.parse(input)) catch {
+  let document = @json.parse(input) catch {
+    error => raise InvalidInput("policy", "配置无法解析：\{error}")
+  }
+  let raw : PolicyJson = @json.from_json(document) catch {
     error => raise InvalidInput("policy", "配置无法解析：\{error}")
   }
   let baseline = read_convention(raw.baseline, "baseline", false)
@@ -137,11 +179,13 @@ pub fn read_policy(input : String) -> Policy raise InputError {
     "auto" => [0, 1, 2, 3]
     _ => raise InvalidInput("rotation", "使用 0、90、180、270 或 auto")
   }
+  let alignment = read_alignment(document)
   {
     baseline,
     delivery,
     anchors,
     rotations,
+    alignment,
     position_mm: tolerance(
       raw.position_tolerance_mm,
       100.0,

@@ -65,8 +65,8 @@ fn findings(
     policy.baseline.bottom_x is Negated,
   )
   let canonical = position(target, policy.delivery.units, frame.negate_bottom_x)
-  let rotated = rotation(canonical, frame.quarter_turns)
-  let delta = difference(frame.translation, difference(expected, rotated))
+  let predicted = frame.transform.apply(canonical)
+  let delta = difference(predicted, expected)
   let distance = magnitude(delta)
   if distance > policy.position_mm {
     items.push({
@@ -77,7 +77,7 @@ fn findings(
       "distance_mm": Json(distance),
     })
   }
-  let rotation_deg = (frame.quarter_turns * 90).to_double()
+  let rotation_deg = frame.rotation_deg
   let angle_delta = angle_wrap(
     measured_angle(target, policy.delivery) +
     rotation_deg -

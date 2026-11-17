@@ -5,7 +5,9 @@ priv enum Side {
 } derive(Eq)
 
 ///|
-priv struct Point {
+/// A point in millimetres, shared by the audit pipeline and the registration
+/// engine.
+pub struct Point {
   x : Double
   y : Double
 }
