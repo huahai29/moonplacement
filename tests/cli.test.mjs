@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -63,6 +63,39 @@ test('registers a continuous rotation and scale from the anchors', () => {
   assert.ok(Math.abs(report.frame.delivery_to_baseline_mm.x - 1.2) < 1e-5);
   assert.ok(report.frame.anchor_residuals.every(anchor => anchor.inlier));
   assert.deepEqual(report.differences, []);
+});
+
+test('cross-checks delivery coordinates against a Gerber copper layer', () => {
+  const report = run([baseline, delivery, policy, 'examples/top-copper.gbr'], 0);
+  assert.equal(report.status, 'pass');
+  assert.equal(report.pad_checked, 5);
+  assert.deepEqual(report.pad_differences, []);
+});
+
+test('reports a pad offset when copper disagrees with the placement', () => {
+  const report = run(
+    [baseline, delivery, policy, 'examples/top-copper-shifted.gbr'],
+    1,
+  );
+  assert.equal(report.status, 'different');
+  assert.deepEqual(
+    report.pad_differences.map(({ ref, kind }) => [ref, kind]),
+    [['D1', 'pad_offset']],
+  );
+});
+
+test('writes an HTML report with a board map', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'moonplacement-html-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const target = join(directory, 'report.html');
+  const report = run(
+    [baseline, delivery, policy, 'examples/top-copper.gbr', '--html', target],
+    0,
+  );
+  assert.equal(report.status, 'pass');
+  const html = readFileSync(target, 'utf8');
+  assert.match(html, /<svg/);
+  assert.match(html, /MoonPlacement/);
 });
 
 test('invalid arguments and files return a structured input error', t => {

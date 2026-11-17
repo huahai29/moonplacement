@@ -8,8 +8,8 @@ repository = "https://github.com/huahai29/moonplacement"
 
 license = "MIT"
 
-keywords = [ "pcb", "smt", "kicad", "placement" ]
+keywords = [ "pcb", "smt", "kicad", "gerber", "placement" ]
 
-description = "Audit and register PCB assembly placement coordinates against a trusted board export."
+description = "Audit PCB assembly placement coordinates, register them against anchors and cross-check them with Gerber copper."
 
 preferred_target = "js"

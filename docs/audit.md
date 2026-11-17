@@ -15,6 +15,7 @@
 | `anchor_tolerance_mm` | 每个基准点允许的最大二维残差，大于 0 且不超过 100 mm |
 | `position_tolerance_mm` | 对齐后器件允许的二维距离，大于 0 且不超过 100 mm |
 | `angle_tolerance_deg` | 器件允许的最小圆周角差，大于 0 且不超过 180° |
+| `pad_tolerance_mm` | 可选，铜层质心与送厂坐标之间允许的距离，缺省 0.1 mm |
 
 底面 X 与角度约定分别配置。例如 KiCad 的底面 X 取反选项改动 X 坐标，角度仍按原角度字段导出。输入必须使用可换算的器件中心和角度零位。合并表应使用同一面板、同一版次及一致的 DNP 筛选规则。参见 [KiCad 位置文件导出](https://docs.kicad.org/9.0/en/cli/cli.html#pcb-export-position-file)和[嘉立创贴片文件说明](https://jlcpcb.com/help/article/pick-place-file-for-pcb-assembly)。
 
@@ -28,13 +29,26 @@
 
 角度差按「送厂角度经方向、零位和整板旋转校正后减基准角度」计算，归入 `[-180°, 180°)`。错面的器件只报板面差异，因为它的坐标和角度可能用了另一套板面约定。器件专属封装零位和任意形变仍超出此工具的对齐范围；连续旋转和比例误差在注册引擎模式下由变换本身吸收。
 
+## 铜层核对
+
+命令行可追加顶层和/或底层 Gerber（RS-274X）文件。工具把送厂坐标映射回基准坐标系，再与铜层比较：
+
+- 解析 `FS` 格式、`MO` 单位、`C`/`R`/`O`/`P` 光圈、`D01`/`D02`/`D03`、`G36`/`G37` 区域、`LPD`/`LPC` 极性和 X2 `TO.C` / `TO.D` 属性。
+- 有 X2 属性时，按位号把所有暗色闪光焊盘聚成一组，用面积加权质心作为该器件的铜层中心，与送厂坐标比较；差值超过 `pad_tolerance_mm` 记为 `pad_offset`。
+- 没有 X2 属性时退化为覆盖率检查：送厂坐标必须落在某个暗色焊盘或区域内（允许 `pad_tolerance_mm` 的扩张），否则记为 `no_copper`。
+- 光圈宏和圆弧按近似处理，并写入 `warnings`；Gerber 与基准表应使用同一板坐标系。
+- 两份表都带 `Val` / `Package` 列时，还会逐位号比较型号与封装，差异记为 `value` 与 `package`。
+
+铜层差异写入 `pad_differences`，与器件差异 `differences` 分开统计；任一非空，结论即为 `different`。
+
 ## JSON 报告 v2
 
 - `status` 和 `reason` 表示结果及无法确认的原因。原因包括基准缺失或错面（`invalid_anchors`）、基准点接近共线（`degenerate_baseline_anchors`）、没有候选符合容差（`no_matching_frame`）、有多个候选（`ambiguous_frame`）、无独立核对点（`no_independent_components`）。
 - `frame` 是唯一选中的变换，可能为空。包含 `rotation_deg`、`scale`、`delivery_bottom_x`、平移向量 `delivery_to_baseline_mm`、最大基准残差 `max_anchor_error_mm`。枚举模式下 `scale` 恒为 `1`，`rotation_deg` 为 90 的整数倍；注册引擎模式下两者都是连续估计值。
 - `candidate_frames` 列出通过基准检查的候选。`rejected_frames` 用 `anchor_tolerance_exceeded` 标记超出容差的候选，并附该候选的 `frame`。`degenerate_delivery_anchors` 表示该底面约定下的基准分布退化，此时只给出约定和原因。
 - 每个算出平移的 `frame` 都含 `anchor_residuals` 和 `worst_anchor_refs`。逐点残差按配置里的基准顺序给出位号、对齐后送厂点减基准点的 `delta_x_mm`、`delta_y_mm`、二维距离 `distance_mm`、是否在基准容差内以及是否进入一致集合的 `inlier`。`worst_anchor_refs` 包含达到最大残差的全部位号。残差可用于定位复核对象，同一组基准可能有多个并列最差点。
-- `differences` 记录器件差异。即使整体状态为 `indeterminate`，仍列出已确认的 `missing`、`extra` 和 `side`。有唯一对齐变换时，也列出 `position` 和 `angle`。
+- `differences` 记录器件差异。即使整体状态为 `indeterminate`，仍列出已确认的 `missing`、`extra`、`side`，以及 `value` 和 `package`。有唯一对齐变换时，也列出 `position` 和 `angle`。
+- `pad_differences` 记录铜层差异（`pad_offset`、`no_copper`），`pad_checked` 是参与铜层核对的器件数。`pad_skipped` 为真表示给出了 Gerber 但未找到唯一对齐，因而跳过铜层核对。
 - `anchor_issues` 单独记录基准异常。`anchor_missing_baseline`、`anchor_missing_delivery`、`anchor_missing_both` 分别表示缺在基准表、送厂表或两表，`anchor_side` 表示板面不一致。
 - 报告同时记录两表行数、基准位号和本次容差。输入无效时输出 `input_error`、`field` 和 `message`。
 
@@ -46,10 +60,14 @@
 | --- | --- |
 | `csv.mbt`、`placement.mbt` | CSV 读取、位号与关键字段校验 |
 | `policy.mbt` | 配置解析及输入范围 |
+| `geom.mbt` | 焊盘形状、多边形面积/质心/包含测试 |
+| `gerber.mbt` | RS-274X 子集解析与 X2 属性归属 |
+| `padcheck.mbt` | 焊盘聚合、质心比较与覆盖率检查 |
 | `transform.mbt` | 二维仿射变换类型与旋转、尺度、平移的读取 |
 | `register.mbt` | 刚体、相似、仿射的闭式估计与确定性 RANSAC |
+| `report.mbt` | 自包含 HTML 报告与 SVG 板面示意图 |
 | `alignment.mbt`、`minimax.mbt` | 单位、底面约定、四分之一圈旋转及最小最大残差平移 |
 | `audit.mbt` | 独立核对与报告 |
 | `cmd/main/main.mbt` | 读取文件并按结果设置退出码 |
 
-库入口是 `read_placements`、`read_policy`、`audit` 和 `register`。CSV 或配置问题抛出 `InputError`。库不调用 KiCad 或远程服务。
+库入口是 `read_placements`、`read_policy`、`audit`、`register`、`parse_gerber`、`check_pads` 和 `render_html`。CSV、配置或 Gerber 问题抛出 `InputError` / `GerberError`。库不调用 KiCad 或远程服务。

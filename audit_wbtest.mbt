@@ -38,6 +38,53 @@ fn fixture_table(rows : String) -> PlacementTable raise InputError {
 }
 
 ///|
+/// A policy whose two files share every convention, so only the requested field
+/// differences remain.
+fn matching_policy(
+  anchors~ : Array[String] = ["R1", "R2", "R3"],
+) -> Policy raise InputError {
+  let convention : Json = {
+    "unit": Json("mm"),
+    "bottom_x": Json("direct"),
+    "angle_sign": Json(1),
+    "top_angle_offset_deg": Json(0),
+    "bottom_angle_offset_deg": Json(0),
+  }
+  let policy : Json = {
+    "baseline": convention,
+    "delivery": convention,
+    "anchors": Json(anchors),
+    "rotation": Json("0"),
+    "position_tolerance_mm": Json(0.05),
+    "angle_tolerance_deg": Json(1),
+    "anchor_tolerance_mm": Json(0.02),
+  }
+  read_policy(policy.stringify())
+}
+
+///|
+test "value and package mismatches are reported per designator" {
+  let baseline = read_placements(
+    "Ref,Val,Package,PosX,PosY,Rot,Side\nR1,1k,R_0603,10,10,0,top\nR2,10k,R_0603,20,10,0,top\nR3,1k,R_0603,10,20,0,top\nD1,LED,LED_0603,5,5,0,top",
+    source="baseline",
+  )
+  let delivery = read_placements(
+    "Ref,Val,Package,PosX,PosY,Rot,Side\nR1,2k,R_0805,10,10,0,top\nR2,10k,R_0603,20,10,0,top\nR3,1k,R_0603,10,20,0,top\nD1,LED,LED_0603,5,5,0,top",
+    source="delivery",
+  )
+  let result = audit(baseline, delivery, matching_policy())
+  assert_true(result.verdict is Different)
+  guard! result.report
+    is {
+      "differences": [
+        { "ref": String("R1"), "kind": String("value"), .. },
+        { "ref": String("R1"), "kind": String("package"), .. },
+      ],
+      ..
+    }
+}
+
+///|
 test "all quarter-turns recovered with signed angle calibration and non-anchor holdout" {
   let baseline = fixture_table(
     "A,10,0,0,top\nB,30,0,90,top\nC,10,20,180,bottom\nD,19,13,355,bottom",

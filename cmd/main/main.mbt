@@ -42,6 +42,18 @@ extern "js" fn file_error(file : FileRead) -> String = "(file) => file.error ?? 
 extern "js" fn file_text(file : FileRead) -> String = "(file) => file.text ?? ''"
 
 ///|
+extern "js" fn write_file(path : String, text : String) -> String =
+  #| (path, text) => {
+  #|   try {
+  #|     const fs = process.getBuiltinModule('node:fs');
+  #|     fs.writeFileSync(path, text);
+  #|     return '';
+  #|   } catch (error) {
+  #|     return error.code ?? error.message;
+  #|   }
+  #| }
+
+///|
 fn load_file(
   path : String,
   limit : Int32,
@@ -55,8 +67,43 @@ fn load_file(
 }
 
 ///|
+fn load_gerber(
+  path : String,
+) -> @placement.GerberDocument raise @placement.InputError {
+  let text = load_file(path, 8_388_608)
+  @placement.parse_gerber(text, source=path) catch {
+    @placement.InvalidGerber(field, message) =>
+      raise @placement.InvalidInput(field, message)
+  }
+}
+
+///|
 fn usage() -> String {
-  "用法：moon run cmd/main --target js -- <基准.csv> <送厂.csv> <配置.json>"
+  "用法：moon run cmd/main --target js -- <基准.csv> <送厂.csv> <配置.json> [顶层.gbr] [底层.gbr] [--html 报告.html]"
+}
+
+///|
+priv struct CliArgs {
+  positional : Array[String]
+  html : String?
+}
+
+///|
+fn parse_args() -> CliArgs {
+  let positional : Array[String] = []
+  let mut html : String? = None
+  let mut index = 0
+  while index < arg_count() {
+    let value = arg(index)
+    if value == "--html" && index + 1 < arg_count() {
+      html = Some(arg(index + 1))
+      index += 2
+    } else {
+      positional.push(value)
+      index += 1
+    }
+  }
+  { positional, html, }
 }
 
 ///|
@@ -65,19 +112,52 @@ fn run() -> Int32 raise @placement.InputError {
     println(usage())
     return 0
   }
-  if arg_count() != 3 {
+  let args = parse_args()
+  let positional = args.positional
+  if positional.length() != 3 &&
+    positional.length() != 4 &&
+    positional.length() != 5 {
     raise @placement.InvalidInput("arguments", usage())
   }
-  let policy = @placement.read_policy(load_file(arg(2), 65_536))
+  let policy = @placement.read_policy(load_file(positional[2], 65_536))
   let baseline = @placement.read_placements(
-    load_file(arg(0), 8_388_608),
-    source=arg(0),
+    load_file(positional[0], 8_388_608),
+    source=positional[0],
   )
   let delivery = @placement.read_placements(
-    load_file(arg(1), 8_388_608),
-    source=arg(1),
+    load_file(positional[1], 8_388_608),
+    source=positional[1],
   )
-  let result = @placement.audit(baseline, delivery, policy)
+  let top = if positional.length() >= 4 {
+    Some(load_gerber(positional[3]))
+  } else {
+    None
+  }
+  let bottom = if positional.length() >= 5 {
+    Some(load_gerber(positional[4]))
+  } else {
+    None
+  }
+  let result = @placement.audit(
+    baseline,
+    delivery,
+    policy,
+    top_gerber=top,
+    bottom_gerber=bottom,
+  )
+  match args.html {
+    Some(path) => {
+      let html = @placement.render_html(result.report, baseline)
+      let error = write_file(path, html)
+      if !error.is_empty() {
+        raise @placement.InvalidInput(
+          path,
+          "无法写入 HTML 报告：\{error}",
+        )
+      }
+    }
+    None => ()
+  }
   println(result.report.stringify(indent=2))
   match result.verdict {
     @placement.Pass => 0

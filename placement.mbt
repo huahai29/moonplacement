@@ -18,6 +18,8 @@ priv struct Placement {
   xy : Point
   angle_deg : Double
   side : Side
+  value : String
+  footprint : String
 }
 
 ///|
@@ -32,6 +34,8 @@ priv enum Column {
   Y
   Angle
   Layer
+  Value
+  Package
 } derive(Eq, Hash)
 
 ///|
@@ -42,6 +46,8 @@ fn column(name : String) -> Column? {
     "posy" | "mid y" => Some(Y)
     "rot" | "rotation" => Some(Angle)
     "side" | "layer" => Some(Layer)
+    "val" | "value" | "comment" => Some(Value)
+    "package" | "footprint" | "pattern" => Some(Package)
     _ => None
   }
 }
@@ -63,10 +69,12 @@ fn placement_columns(
       columns[kind] = index
     }
   }
-  if columns.length() != 5 {
-    raise InvalidInput(
-      source, "表头必须包含位号、X、Y、角度和板面",
-    )
+  for required in [Ref, X, Y, Angle, Layer] {
+    if !columns.contains(required) {
+      raise InvalidInput(
+        source, "表头必须包含位号、X、Y、角度和板面",
+      )
+    }
   }
   columns
 }
@@ -142,7 +150,15 @@ pub fn read_placements(
       where_,
     )
     let side = read_side(row.fields[columns[Layer]], where_)
-    placements[refdes] = { refdes, xy, angle_deg, side, }
+    let value = match columns.get(Value) {
+      Some(index) => row.fields[index].trim().to_owned()
+      None => ""
+    }
+    let footprint = match columns.get(Package) {
+      Some(index) => row.fields[index].trim().to_owned()
+      None => ""
+    }
+    placements[refdes] = { refdes, xy, angle_deg, side, value, footprint, }
   }
   { rows: placements, }
 }

@@ -2,7 +2,7 @@
 
 [![MoonPlacement 检查](https://github.com/huahai29/moonplacement/actions/workflows/check.yml/badge.svg?branch=main)](https://github.com/huahai29/moonplacement/actions/workflows/check.yml)
 
-MoonPlacement 是一个用 MoonBit 写的双面 PCB 贴片坐标核对工具。送厂前，把同一版板子的设计导出表和准备交付的坐标表交给它，就能按器件位号查出漏件、多件、错面、偏位和角度偏差。
+MoonPlacement 是一个用 MoonBit 写的双面 PCB 贴片坐标核对工具。送厂前，把同一版板子的设计导出表和准备交付的坐标表交给它，就能按器件位号查出漏件、多件、错面、偏位和角度偏差；再把设计导出的 Gerber 铜层一并交给它，还能检查送厂坐标是否真的落在焊盘上。
 
 [KiCad 实际导出复现](examples/README.md) · [对齐规则与 JSON 报告](docs/audit.md)
 
@@ -15,6 +15,12 @@ git clone https://github.com/huahai29/moonplacement.git
 cd moonplacement
 moon build --target js
 node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/delivery-ok.csv examples/policy.json
+```
+
+加上顶层 Gerber 做焊盘级核对，并导出 HTML 报告：
+
+```sh
+node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/delivery-ok.csv examples/policy.json examples/top-copper.gbr --html _build/report.html
 ```
 
 四个样例共用 `examples/baseline.csv`。替换命令中最后两个文件即可复现另外三种结果。
@@ -34,6 +40,19 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 - 刚体和相似用闭式最小二乘，仿射用三参数法方程；三者都以 2 或 3 个点的最小样本做确定性 RANSAC，再在一致集合上重拟合。
 - 报告给出旋转角、尺度、平移、逐基准残差、RMS 和一致集合。`register` 是公开函数，输入两组点即可单独调用。
 
+## 铜层核对
+
+给出 `top.gbr` / `bottom.gbr`（RS-274X）后，工具会解析光圈、D 码、区域和 X2 属性，把每颗器件的铜层质心与对齐后的送厂坐标比较：
+
+- 有 X2 `TO.C` 属性时，按位号聚合焊盘并比较面积加权质心，能发现“坐标落在了错误的焊盘上”。
+- 没有 X2 时退化为覆盖率检查：送厂坐标附近必须有暗色铜。
+- 结果写入 `pad_differences`，与器件的 `differences` 分开；任一非空即判 `different`。
+- 容差由配置里的 `pad_tolerance_mm` 控制，缺省 0.1 mm。
+
+当前支持 `C`/`R`/`O`/`P` 光圈、线性 D01 与闪光 D03、`G36`/`G37` 区域、`LPD`/`LPC` 极性和毫米/英寸单位；光圈宏与圆弧按近似处理并在 `warnings` 中记录。
+
+两份表都带 `Val` / `Package` 列时，工具还会比较型号与封装，差异记为 `value` 与 `package`。
+
 ## 怎么核对
 
 工具先统一单位，按配置尝试底面 X 约定。默认在四个四分之一圈里枚举整板旋转，对每种候选用可信器件的位置求平移，让最大基准残差尽可能小；配置 `alignment` 后改为从基准点直接拟合连续变换。只有唯一候选通过时，才逐件比较位置和角度。对齐失败或有歧义时，仍按位号列出能确认的漏件、多件和错面。
@@ -44,7 +63,7 @@ CSV 解析、单位换算、对齐和报告都由 MoonBit 实现。Node.js 为�
 
 1. 准备两份 UTF-8 CSV。支持 KiCad 导出表头和嘉立创 CPL 风格表头。坐标列使用纯数字，单位写在配置中。
 2. 复制示例配置，填写两表的单位、底面 X 约定、角度方向和零位。选至少三个已确认、位置分散的器件做基准。自动判断底面 X 时，通常还需要一个远离 X=0 的底面基准。 [示例配置](examples/policy.json)
-3. 运行核对命令。标准输出为 JSON v2，可查看每颗基准件的残差、最大残差对应的位号和逐器件差异。
+3. 运行核对命令。标准输出为 JSON v2，可查看每颗基准件的残差、最大残差对应的位号和逐器件差异；追加顶层/底层 Gerber 可做焊盘级核对，`--html <路径>` 会同时写出带板面示意图的 HTML 报告。
 
 | 退出码 | 状态 | 含义 |
 | --- | --- | --- |
@@ -57,6 +76,6 @@ CSV 解析、单位换算、对齐和报告都由 MoonBit 实现。Node.js 为�
 
 ## 验证
 
-CI 检查构建、四个 MoonBit 后端和 CLI 退出码。仓库附六器件双面 KiCad 测试板，CI 用不同单位、原点和底面 X 选项实际导出并复核。另有一条容差回归用例，确认基准容差为 0.020 mm 时，最大残差 0.0175 mm 的对齐方式能够通过。注册引擎另有相似、刚体、仿射恢复，异常基准剔除、退化基准拒绝和连续旋转示例的用例。 [复现步骤](examples/README.md) · [CI 记录](https://github.com/huahai29/moonplacement/actions/workflows/check.yml)
+CI 检查构建、四个 MoonBit 后端和 CLI 退出码。仓库附六器件双面 KiCad 测试板，CI 用不同单位、原点和底面 X 选项实际导出并复核。另有一条容差回归用例，确认基准容差为 0.020 mm 时，最大残差 0.0175 mm 的对齐方式能够通过。注册引擎另有相似、刚体、仿射恢复，异常基准剔除、退化基准拒绝和连续旋转示例的用例；铜层核对另有 Gerber 解析（光圈、区域、X2、英寸）、焊盘质心、覆盖率、型号/封装差异和 HTML 报告的用例。 [复现步骤](examples/README.md) · [CI 记录](https://github.com/huahai29/moonplacement/actions/workflows/check.yml)
 
 [MIT 许可证](LICENSE)

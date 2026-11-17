@@ -23,6 +23,16 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 
 预期为 `pass`，`frame.rotation_deg` 约为 2.5，`frame.scale` 约为 1.0003，`frame.delivery_bottom_x` 为 `negated`。该示例走注册引擎的连续相似变换，而不是四分之一圈枚举。
 
+## 铜层核对示例
+
+`top-copper.gbr` 是手写的六器件顶层铜层（RS-274X），每个焊盘都带 X2 `TO.C` 位号属性。顶层器件与 `baseline.csv` 位置一致，可用它做焊盘级核对并导出 HTML：
+
+```sh
+node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/delivery-ok.csv examples/policy.json examples/top-copper.gbr --html _build/report.html
+```
+
+预期为 `pass`，`pad_checked` 为 5，`pad_differences` 为空。把 `top-copper.gbr` 换成 `top-copper-shifted.gbr`（D1 的焊盘整体偏移 2 mm），预期改为 `different`，`pad_differences` 中只有 D1 的 `pad_offset`。
+
 ## 测试命令
 
 ```sh

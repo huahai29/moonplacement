@@ -42,6 +42,11 @@ fn measured_angle(placement : Placement, convention : FileConvention) -> Double 
 }
 
 ///|
+fn same_text(a : String, b : String) -> Bool {
+  a.trim().to_lower() == b.trim().to_lower()
+}
+
+///|
 fn findings(
   reference : Placement,
   target : Placement,
@@ -57,6 +62,26 @@ fn findings(
       "delivery": Json(side_name(target.side)),
     })
     return
+  }
+  if !reference.value.is_empty() &&
+    !target.value.is_empty() &&
+    !same_text(reference.value, target.value) {
+    items.push({
+      "ref": Json(reference.refdes),
+      "kind": Json("value"),
+      "baseline": Json(reference.value),
+      "delivery": Json(target.value),
+    })
+  }
+  if !reference.footprint.is_empty() &&
+    !target.footprint.is_empty() &&
+    !same_text(reference.footprint, target.footprint) {
+    items.push({
+      "ref": Json(reference.refdes),
+      "kind": Json("package"),
+      "baseline": Json(reference.footprint),
+      "delivery": Json(target.footprint),
+    })
   }
   guard frame is Some(frame) else { return }
   let expected = position(
@@ -93,12 +118,51 @@ fn findings(
 }
 
 ///|
+priv struct SideTargets {
+  refs : Array[String]
+  points : Array[Point]
+}
+
+///|
+/// Delivery components on one side, already mapped into the baseline frame.
+fn side_targets(
+  delivery : Map[String, Placement],
+  side : Side,
+  frame : Frame,
+  policy : Policy,
+) -> SideTargets {
+  let refs : Array[String] = []
+  let points : Array[Point] = []
+  let keys = delivery.keys().collect()
+  keys.sort()
+  for key in keys {
+    let part = delivery[key]
+    if part.side == side {
+      let canonical = position(
+        part,
+        policy.delivery.units,
+        frame.negate_bottom_x,
+      )
+      refs.push(key)
+      points.push(frame.transform.apply(canonical))
+    }
+  }
+  { refs, points, }
+}
+
+///|
 /// Compare two exports of the same board revision.
 /// Membership and side are always checked. Geometry requires a unique frame.
+///
+/// `top_gerber` and `bottom_gerber` are optional parsed copper layers used for
+/// the pad-level cross-check; when absent the report records an empty pad list
+/// and the previous behaviour is unchanged.
 pub fn audit(
   baseline_table : PlacementTable,
   delivery_table : PlacementTable,
   policy : Policy,
+  top_gerber~ : GerberDocument? = None,
+  bottom_gerber~ : GerberDocument? = None,
 ) -> AuditResult {
   let baseline = baseline_table.rows
   let delivery = delivery_table.rows
@@ -150,6 +214,49 @@ pub fn audit(
   for key in extra {
     evidence.push({ "ref": Json(key), "kind": Json("extra") })
   }
+  let pad_evidence : Array[Json] = []
+  let mut pad_checked = 0
+  let mut pad_skipped = false
+  match frame {
+    Some(chosen) => {
+      match top_gerber {
+        Some(document) => {
+          let targets = side_targets(delivery, Top, chosen, policy)
+          let found = check_pads(
+            document,
+            targets.refs,
+            targets.points,
+            policy.pad_mm,
+          )
+          for item in found {
+            pad_evidence.push(item)
+          }
+          pad_checked += targets.refs.length()
+        }
+        None => ()
+      }
+      match bottom_gerber {
+        Some(document) => {
+          let targets = side_targets(delivery, Bottom, chosen, policy)
+          let found = check_pads(
+            document,
+            targets.refs,
+            targets.points,
+            policy.pad_mm,
+          )
+          for item in found {
+            pad_evidence.push(item)
+          }
+          pad_checked += targets.refs.length()
+        }
+        None => ()
+      }
+    }
+    None =>
+      if top_gerber is Some(_) || bottom_gerber is Some(_) {
+        pad_skipped = true
+      }
+  }
   let (verdict, reason) = if !anchor_issues.is_empty() {
     (Indeterminate, Json("invalid_anchors"))
   } else if !search.baseline_has_area {
@@ -158,7 +265,7 @@ pub fn audit(
     (Indeterminate, Json("no_matching_frame"))
   } else if frame is None {
     (Indeterminate, Json("ambiguous_frame"))
-  } else if !evidence.is_empty() {
+  } else if !evidence.is_empty() || !pad_evidence.is_empty() {
     (Different, Json(null))
   } else if baseline.length() == pairs.length() {
     (Indeterminate, Json("no_independent_components"))
@@ -182,10 +289,14 @@ pub fn audit(
     "baseline_count": Json(baseline.length()),
     "delivery_count": Json(delivery.length()),
     "differences": Json(evidence),
+    "pad_differences": Json(pad_evidence),
+    "pad_checked": Json(pad_checked),
+    "pad_skipped": Json(pad_skipped),
     "tolerances": {
       "position_mm": Json(policy.position_mm),
       "angle_deg": Json(policy.angle_deg),
       "anchor_mm": Json(policy.anchor_mm),
+      "pad_mm": Json(policy.pad_mm),
     },
   }
   { verdict, report, }

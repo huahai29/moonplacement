@@ -41,6 +41,7 @@ pub struct Policy {
   priv position_mm : Double
   priv angle_deg : Double
   priv anchor_mm : Double
+  priv pad_mm : Double
 }
 
 ///|
@@ -145,6 +146,27 @@ fn read_alignment(document : Json) -> AlignmentMode raise InputError {
 }
 
 ///|
+/// Read an optional numeric tolerance from the raw policy document.
+fn read_optional_tolerance(
+  document : Json,
+  key : String,
+  fallback : Double,
+) -> Double raise InputError {
+  let field = match document {
+    Object(fields) => fields.get(key)
+    _ => None
+  }
+  match field {
+    None => fallback
+    Some(value) =>
+      match value {
+        Number(number, ..) => tolerance(number, 100.0, key)
+        _ => raise InvalidInput(key, "必须是数字")
+      }
+  }
+}
+
+///|
 /// Parse the coordinate conventions and tolerances for a comparison.
 pub fn read_policy(input : String) -> Policy raise InputError {
   if input.length() > 65_536 {
@@ -180,6 +202,7 @@ pub fn read_policy(input : String) -> Policy raise InputError {
     _ => raise InvalidInput("rotation", "使用 0、90、180、270 或 auto")
   }
   let alignment = read_alignment(document)
+  let pad_mm = read_optional_tolerance(document, "pad_tolerance_mm", 0.1)
   {
     baseline,
     delivery,
@@ -193,5 +216,6 @@ pub fn read_policy(input : String) -> Policy raise InputError {
     ),
     angle_deg: tolerance(raw.angle_tolerance_deg, 180.0, "angle_tolerance_deg"),
     anchor_mm: tolerance(raw.anchor_tolerance_mm, 100.0, "anchor_tolerance_mm"),
+    pad_mm,
   }
 }
