@@ -1,0 +1,75 @@
+{
+  "pad-scaled.gbr": {
+    "exit_code": 1,
+    "status": "different",
+    "differences": [],
+    "pad_status": "complete",
+    "pad_evidence": [
+      {
+        "ref": "D1",
+        "side": "top",
+        "evidence": {
+          "status": "by_reference",
+          "pad_count": 2,
+          "distance_mm": 0.6000114000533338,
+          "within_tolerance": false
+        }
+      }
+    ],
+    "pad_differences": [
+      {
+        "ref": "D1",
+        "kind": "pad_offset",
+        "delta_x_mm": -0.00000799999999756551,
+        "delta_y_mm": -0.6000114000000014,
+        "distance_mm": 0.6000114000533338
+      }
+    ]
+  },
+  "macro-transformed.gbr": {
+    "exit_code": 1,
+    "status": "different",
+    "differences": [],
+    "pad_status": "complete",
+    "pad_evidence": [
+      {
+        "ref": "D1",
+        "side": "top",
+        "evidence": {
+          "status": "by_reference",
+          "pad_count": 1,
+          "distance_mm": 1.9999886000160019,
+          "within_tolerance": false
+        }
+      }
+    ],
+    "pad_differences": [
+      {
+        "ref": "D1",
+        "kind": "pad_offset",
+        "delta_x_mm": -0.000008000000001118224,
+        "delta_y_mm": 1.9999886000000018,
+        "distance_mm": 1.9999886000160019
+      }
+    ]
+  },
+  "macro-transformed-pass.gbr": {
+    "exit_code": 0,
+    "status": "pass",
+    "differences": [],
+    "pad_status": "complete",
+    "pad_evidence": [
+      {
+        "ref": "D1",
+        "side": "top",
+        "evidence": {
+          "status": "by_reference",
+          "pad_count": 1,
+          "distance_mm": 0.000013926952288935033,
+          "within_tolerance": true
+        }
+      }
+    ],
+    "pad_differences": []
+  }
+}

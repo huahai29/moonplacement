@@ -7,7 +7,7 @@ pub(all) suberror GerberError {
 ///|
 /// One parsed Gerber drawing operation.
 pub enum GerberKind {
-  /// An aperture flashed at a point (`D03`), the usual representation of a pad.
+  /// A flashed aperture and its geometric center, after aperture transforms.
   Flash(Shape, Point)
   /// A stroked segment (`D01`) with the current aperture as its width.
   Draw(Shape, Point, Point)
@@ -49,8 +49,13 @@ priv struct CoordinateFormat {
 priv struct GerberState {
   mut format : CoordinateFormat?
   mut scale : Double?
-  apertures : Map[Int32, Shape]
+  apertures : Map[Int32, Aperture]
+  macros : Map[String, Array[String]]
   mut current_aperture : Int32
+  mut mirror_x : Bool
+  mut mirror_y : Bool
+  mut aperture_angle : Double
+  mut aperture_scale : Double
   mut dark : Bool
   mut current : Point?
   mut interpolation : Int32
@@ -83,34 +88,46 @@ fn chars_to_string(chars : Array[Char], start : Int32) -> String {
 }
 
 ///|
-fn split_statements(text : String) -> Array[String] {
+fn split_statements(
+  text : String,
+  source : String,
+) -> Array[String] raise GerberError {
   let statements : Array[String] = []
   let mut buffer = StringBuilder()
+  let mut macro_body = false
   for _, ch in text.iter2() {
     match ch {
+      '*' if macro_body => buffer.write_char('*')
       '*' => {
         let statement = buffer.to_string()
-        if !statement.is_empty() {
+        if statement.has_prefix("AM") {
+          macro_body = true
+          buffer.write_char('*')
+        } else if !statement.is_empty() {
           statements.push(statement)
+          buffer = StringBuilder()
+          if statement == "M02" {
+            return statements
+          }
         }
+      }
+      '%' if macro_body => {
+        statements.push(buffer.to_string())
         buffer = StringBuilder()
+        macro_body = false
       }
       '%' | '\r' | '\n' | '\t' | ' ' => ()
       _ => buffer.write_char(ch)
     }
+  }
+  if macro_body {
+    raise InvalidGerber(source, "光圈宏缺少结束符 %")
   }
   let tail = buffer.to_string()
   if !tail.is_empty() {
     statements.push(tail)
   }
   statements
-}
-
-///|
-fn parse_number(text : String) -> Double {
-  @string.parse_double(text) catch {
-    _ => 0.0
-  }
 }
 
 ///|
@@ -140,35 +157,6 @@ fn pow10(exponent : Int32) -> Double {
     value *= 10.0
   }
   value
-}
-
-///|
-fn parse_params(
-  chars : Array[Char],
-  start : Int32,
-  scale : Double,
-) -> Array[Double] {
-  let params : Array[Double] = []
-  let mut index = start
-  let mut buffer = StringBuilder()
-  while index < chars.length() {
-    let ch = chars[index]
-    if ch == 'X' || ch == 'x' {
-      let part = buffer.to_string()
-      if !part.is_empty() {
-        params.push(parse_number(part) * scale)
-        buffer = StringBuilder()
-      }
-    } else {
-      buffer.write_char(ch)
-    }
-    index += 1
-  }
-  let part = buffer.to_string()
-  if !part.is_empty() {
-    params.push(parse_number(part) * scale)
-  }
-  params
 }
 
 ///|
@@ -250,50 +238,103 @@ fn parse_aperture(
   if index >= chars.length() {
     raise InvalidGerber(source, "光圈定义缺少模板")
   }
-  let template = chars[index]
-  index += 1
-  if index >= chars.length() || chars[index] != ',' {
-    raise InvalidGerber(source, "光圈参数缺少逗号")
-  }
-  index += 1
   guard state.scale is Some(scale) else {
     raise InvalidGerber(source, "光圈定义前缺少 MO 单位声明")
   }
-  let params = parse_params(chars, index, scale)
-  let shape = match template {
-    'C' => {
-      if params.length() < 1 {
-        raise InvalidGerber(source, "圆形光圈缺少直径")
-      }
-      Circle(params[0] * 0.5)
-    }
-    'R' => {
-      if params.length() < 2 {
-        raise InvalidGerber(source, "矩形光圈缺少宽高")
-      }
-      Rectangle(params[0], params[1])
-    }
-    'O' => {
-      if params.length() < 2 {
-        raise InvalidGerber(source, "椭圆形光圈缺少宽高")
-      }
-      Obround(params[0], params[1])
-    }
-    'P' => {
-      if params.length() < 2 {
-        raise InvalidGerber(source, "多边形光圈缺少直径或边数")
-      }
-      Polygon(params[0] * 0.5, params[1].to_int())
-    }
-    _ => raise InvalidGerber(source, "不支持的光圈模板")
+  let (template, fields) = match
+    aperture_fields(chars_to_string(chars, index), ',') {
+    [name] => (name, [])
+    [name, values] => (name, aperture_fields(values, 'X'))
+    _ => raise InvalidGerber(source, "光圈定义参数无效")
   }
-  state.apertures[code] = shape
+  let params = []
+  for value in fields {
+    params.push(aperture_number(value, source))
+  }
+  if state.macros.get(template) is Some(body) {
+    state.apertures[code] = macro_aperture(
+      template, body, params, scale, source,
+    )
+    return
+  }
+  let shape = match (template, params) {
+    ("C", [diameter]) if diameter >= 0.0 => Circle(diameter * scale * 0.5)
+    ("R", [width, height]) if width >= 0.0 && height >= 0.0 =>
+      Rectangle(width * scale, height * scale)
+    ("O", [width, height]) if width >= 0.0 && height >= 0.0 =>
+      Obround(width * scale, height * scale)
+    ("P", [diameter, sides, .. angles]) if diameter >= 0.0 &&
+      sides >= 3.0 &&
+      sides <= 12.0 &&
+      sides == sides.to_int().to_double() &&
+      angles.length() <= 1 => {
+      let polygon = Polygon(diameter * scale * 0.5, sides.to_int())
+      transform_shape(polygon, aperture_rotation(angles.get(0).unwrap_or(0.0)))
+    }
+    _ =>
+      raise InvalidGerber(
+        source,
+        "暂不支持的光圈模板、孔或参数：\{template}",
+      )
+  }
+  state.apertures[code] = {
+    shape,
+    offset: { x: 0.0, y: 0.0, },
+    can_draw: template == "C",
+  }
 }
 
 ///|
-fn parse_polarity(state : GerberState, chars : Array[Char]) -> Unit {
-  if chars.length() >= 3 {
-    state.dark = chars[2] != 'C'
+fn load_aperture_state(
+  state : GerberState,
+  operation : Char,
+  value : String,
+  source : String,
+) -> Unit raise GerberError {
+  match (operation, value) {
+    ('P', "D") => state.dark = true
+    ('P', "C") => state.dark = false
+    ('M', "N" | "X" | "Y" | "XY") => {
+      state.mirror_x = value == "X" || value == "XY"
+      state.mirror_y = value == "Y" || value == "XY"
+    }
+    ('R', _) => state.aperture_angle = aperture_number(value, source)
+    ('S', _) => {
+      let scale = aperture_number(value, source)
+      let area_scale = scale * scale
+      if scale <= 0.0 || area_scale == 0.0 || area_scale.is_inf() {
+        raise InvalidGerber(source, "LS 缩放因子超出可计算范围")
+      }
+      state.aperture_scale = scale
+    }
+    _ =>
+      raise InvalidGerber(
+        source,
+        "无效的光圈状态指令 L\{operation}\{value}",
+      )
+  }
+}
+
+///|
+fn aperture_matrix(state : GerberState) -> Transform2D {
+  let rotation = aperture_rotation(state.aperture_angle)
+  let sx = if state.mirror_x {
+    -state.aperture_scale
+  } else {
+    state.aperture_scale
+  }
+  let sy = if state.mirror_y {
+    -state.aperture_scale
+  } else {
+    state.aperture_scale
+  }
+  {
+    a: rotation.a * sx,
+    b: rotation.b * sy,
+    c: 0.0,
+    d: rotation.d * sx,
+    e: rotation.e * sy,
+    f: 0.0,
   }
 }
 
@@ -396,10 +437,10 @@ fn coordinate(
 }
 
 ///|
-fn current_shape(
+fn current_aperture(
   state : GerberState,
   source : String,
-) -> Shape raise GerberError {
+) -> Aperture raise GerberError {
   match state.apertures.get(state.current_aperture) {
     Some(shape) => shape
     None => raise InvalidGerber(source, "未选择光圈")
@@ -447,12 +488,16 @@ fn process_operation(
             state.region_points = []
           }
           37 => flush_region(state)
-          91 =>
+          70 | 71 | 91 =>
             raise InvalidGerber(
-              source, "不支持增量坐标，请重新导出为绝对坐标",
+              source, "不支持旧版单位或增量坐标指令，请以 FS 和 MO 声明",
             )
-          74 | 75 => ()
-          _ => ()
+          54 | 55 | 74 | 75 | 90 => ()
+          _ =>
+            raise InvalidGerber(
+              source,
+              "暂不支持的绘图指令：G\{word.value}",
+            )
         }
       }
       'X' => x = Some(coordinate(state, word, source))
@@ -498,13 +543,26 @@ fn process_operation(
         raise InvalidGerber(source, "绘线前缺少起点")
       }
       if state.interpolation != 1 {
-        state.warnings.push("圆弧已按弦线近似：\{statement}")
+        if state.warnings.is_empty() {
+          state.warnings.push(
+            "圆弧目前按弦线近似，此铜层位号核验无法确认",
+          )
+        }
       }
       if state.region {
         state.region_points.push(start)
         state.region_points.push(target)
       } else {
-        let shape = current_shape(state, source)
+        let aperture = current_aperture(state, source)
+        if !aperture.can_draw {
+          raise InvalidGerber(
+            source, "区域以外的 D01 需要实心圆形标准光圈",
+          )
+        }
+        let shape = transform_shape(aperture.shape, aperture_matrix(state))
+        if shape.area().is_inf() || shape.area().is_nan() {
+          raise InvalidGerber(source, "描线光圈面积超出可计算范围")
+        }
         state.features.push({
           kind: Draw(shape, start, target),
           dark: state.dark,
@@ -512,14 +570,30 @@ fn process_operation(
         })
       }
     }
-    2 => ()
+    2 =>
+      if state.region && !state.region_points.is_empty() {
+        raise InvalidGerber(source, "暂不支持多轮廓区域")
+      }
     3 => {
       if state.region {
         raise InvalidGerber(source, "区域轮廓中不能使用 D03")
       }
-      let shape = current_shape(state, source)
+      let aperture = current_aperture(state, source)
+      let matrix = aperture_matrix(state)
+      let offset = matrix.apply(aperture.offset)
+      let center = { x: target.x + offset.x, y: target.y + offset.y, }
+      let shape = transform_shape(aperture.shape, matrix)
+      let area = shape.area()
+      if area.is_inf() ||
+        area.is_nan() ||
+        center.x.is_nan() ||
+        center.x.is_inf() ||
+        center.y.is_nan() ||
+        center.y.is_inf() {
+        raise InvalidGerber(source, "闪光几何超出可计算范围")
+      }
       state.features.push({
-        kind: Flash(shape, target),
+        kind: Flash(shape, center),
         dark: state.dark,
         refdes: feature_refdes(state),
       })
@@ -544,11 +618,36 @@ fn process_statement(
       ('F', 'S') => return parse_format(state, chars, source)
       ('M', 'O') => return parse_units(state, statement, source)
       ('A', 'D') => return parse_aperture(state, chars, source)
-      ('L', 'P') => return parse_polarity(state, chars)
+      ('L', operation) =>
+        return load_aperture_state(
+          state,
+          operation,
+          chars_to_string(chars, 2),
+          source,
+        )
       ('A', 'M') => {
-        state.warnings.push("跳过光圈宏：\{statement}")
+        let fields = aperture_fields(chars_to_string(chars, 2), '*')
+        guard fields is [name, .. body] &&
+          !name.is_empty() &&
+          body.length() >= 2 &&
+          body.get(body.length() - 1) == Some("") else {
+          raise InvalidGerber(source, "无效的光圈宏定义")
+        }
+        state.macros[name] = body.to_owned()
         return
       }
+      ('A', 'B')
+      | ('S', 'R')
+      | ('A', 'S')
+      | ('M', 'I')
+      | ('O', 'F')
+      | ('S', 'F')
+      | ('I', 'R')
+      | ('I', 'P') =>
+        raise InvalidGerber(
+          source,
+          "暂不支持会改变铜层几何的指令：\{statement}",
+        )
       ('T', 'O') => {
         // Accept the old example's nonstandard reset spelling as well as TD.
         if chars_to_string(chars, 2) == ".D" {
@@ -571,14 +670,24 @@ fn process_statement(
         }
         return
       }
-      ('T', 'F') | ('T', 'A') => return
+      ('T', 'F') => {
+        if statement == "TF.FilePolarity,Negative" {
+          raise InvalidGerber(source, "暂不支持负像铜层核验")
+        }
+        return
+      }
+      ('T', 'A') => return
       _ => ()
     }
   }
   match chars[0] {
     'G' | 'D' | 'X' | 'Y' | 'I' | 'J' =>
       process_operation(state, chars, statement, source)
-    _ => ()
+    _ =>
+      raise InvalidGerber(
+        source,
+        "暂不支持的 Gerber 指令：\{statement}",
+      )
   }
 }
 
@@ -588,8 +697,9 @@ fn process_statement(
 /// Supported: absolute coordinates with leading or trailing zero omission,
 /// mm/inch units, `C`/`R`/`O`/`P` apertures, `G01`
 /// linear interpolation, `D01`/`D02`/`D03`, `G36`/`G37` regions, `LPD`/`LPC`
-/// polarity and X2 `TO.C` component / `TO.P` pin attributes. Macros and arcs are
-/// approximated and reported through `warnings`.
+/// polarity, LM/LR/LS and X2 `TO.C` component / `TO.P` pin attributes.
+/// Macros support a single exposed circle or center line with literal fields
+/// or direct AD parameters. Arcs are approximated and reported through warnings.
 pub fn parse_gerber(
   text : String,
   source~ : String,
@@ -598,7 +708,12 @@ pub fn parse_gerber(
     format: None,
     scale: None,
     apertures: Map([]),
+    macros: Map([]),
     current_aperture: 0,
+    mirror_x: false,
+    mirror_y: false,
+    aperture_angle: 0.0,
+    aperture_scale: 1.0,
     dark: true,
     current: None,
     interpolation: 1,
@@ -609,11 +724,19 @@ pub fn parse_gerber(
     features: [],
     warnings: [],
   }
-  for statement in split_statements(text) {
+  for statement in split_statements(text, source) {
     if statement == "M02" {
       break
     }
     process_statement(state, statement, source)
+  }
+  if state.region {
+    raise InvalidGerber(source, "区域缺少结束指令 G37")
+  }
+  if state.features.any(feature => !feature.dark) {
+    state.warnings.push(
+      "包含清除对象，完整极性合成实现前不对该层作位号核验",
+    )
   }
   { features: state.features, warnings: state.warnings, }
 }

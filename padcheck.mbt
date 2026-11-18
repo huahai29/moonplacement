@@ -106,9 +106,12 @@ fn pad_evidence(
   positions : Array[Point],
   tolerance_mm : Double,
 ) -> Array[PadEvidence] {
+  let count = positions.length().min(refdes.length())
+  if !document.warnings.is_empty() {
+    return Array::make(count, Unverified)
+  }
   let groups = pad_groups(gerber_pads(document))
   let evidence = []
-  let count = positions.length().min(refdes.length())
   for i in 0..<count {
     let point = positions[i]
     evidence.push(

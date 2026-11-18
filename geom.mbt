@@ -13,6 +13,8 @@ pub enum Shape {
   Obround(Double, Double)
   /// Circumradius and vertex count.
   Polygon(Double, Int32)
+  /// A centered aperture under a rotation, reflection, or uniform scale.
+  Transformed(Shape, Transform2D)
 }
 
 ///|
@@ -29,6 +31,7 @@ pub fn Shape::area(self : Shape) -> Double {
       let count = sides.to_double()
       0.5 * count * radius * radius * @math.sin(2.0 * @math.PI / count)
     }
+    Transformed(shape, matrix) => shape.area() * matrix.determinant().abs()
   }
 }
 
@@ -112,6 +115,8 @@ pub fn Shape::expanded(self : Shape, amount : Double) -> Shape {
     Obround(width, height) =>
       Obround(width + 2.0 * amount, height + 2.0 * amount)
     Polygon(radius, sides) => Polygon(radius + amount, sides)
+    Transformed(shape, matrix) =>
+      Transformed(shape.expanded(amount / matrix.scale()), matrix)
   }
 }
 
@@ -129,6 +134,16 @@ pub fn Shape::contains(self : Shape, center : Point, point : Point) -> Bool {
       let vertices = polygon_vertices(radius, sides)
       let moved = vertices.map(v => { x: v.x - dx, y: v.y - dy, })
       convex_contains(moved, { x: 0.0, y: 0.0, })
+    }
+    Transformed(shape, matrix) => {
+      let determinant = matrix.determinant()
+      if determinant == 0.0 {
+        return false
+      }
+      shape.contains({ x: 0.0, y: 0.0, }, {
+        x: (matrix.e * dx - matrix.b * dy) / determinant,
+        y: (matrix.a * dy - matrix.d * dx) / determinant,
+      })
     }
   }
 }

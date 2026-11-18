@@ -113,3 +113,23 @@ test "unsupported aperture template reports an error" {
   }
   assert_true(result is Err(InvalidGerber("fixture", _)))
 }
+
+///|
+test "macro rotation, external reflection, and reset transform the aperture around its origin" {
+  let text = "%FSLAX46Y46*%%MOMM*%%AMRect*21,1,4,2,$1,0,90*%" +
+    "%ADD10Rect,1*%%ADD11C,1*%D10*%LMY*%%LR90*%%LS2*%" +
+    "%TO.P,R1,1*%X10000000Y10000000D03*%LMN*%%LR0*%%LS1*%D11*" +
+    "%TO.P,R2,1*%D03*M02*"
+  let document = parse_gerber(text, source="fixture")
+  let pads = gerber_pads(document)
+  guard! pads is [rect, circle]
+  assert_eq(rect.refdes, Some("R1"))
+  assert_eq(circle.refdes, Some("R2"))
+  assert_true((rect.center.x - 12.0).abs() < 1.0e-12)
+  assert_true((rect.center.y - 10.0).abs() < 1.0e-12)
+  assert_true((rect.area - 32.0).abs() < 1.0e-12)
+  assert_true(rect.shape.contains(rect.center, { x: 15.5, y: 10.0, }))
+  assert_false(rect.shape.contains(rect.center, { x: 12.0, y: 13.0, }))
+  assert_eq(circle.center.x, 10.0)
+  assert_eq(circle.center.y, 10.0)
+}

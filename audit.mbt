@@ -317,7 +317,7 @@ pub fn audit(
     "not_requested"
   } else if pad_skipped {
     "skipped"
-  } else if pad_checked < pad_results.length() {
+  } else if !pad_warnings.is_empty() || pad_checked < pad_results.length() {
     "incomplete"
   } else {
     "complete"

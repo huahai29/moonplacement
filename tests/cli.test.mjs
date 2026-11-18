@@ -9,6 +9,7 @@ const bin = '_build/js/debug/build/cmd/main/main.js';
 const baseline = 'examples/baseline.csv';
 const delivery = 'examples/delivery-ok.csv';
 const policy = 'examples/policy.json';
+const gerberExamples = 'examples/gerber';
 
 function run(args, expectedExit) {
   const result = spawnSync(process.execPath, [bin, ...args], { encoding: 'utf8' });
@@ -16,6 +17,52 @@ function run(args, expectedExit) {
   assert.equal(result.status, expectedExit, result.stderr || result.stdout);
   return JSON.parse(result.stdout);
 }
+
+test('evaluates flash scaling and transformed aperture macros before auditing pads', () => {
+  for (const [file, exit, status, count, distance] of [
+    ['pad-scaled.gbr', 1, 'different', 2, 0.6],
+    ['macro-transformed.gbr', 1, 'different', 1, 2.0],
+    ['macro-transformed-pass.gbr', 0, 'pass', 1, 0.0],
+  ]) {
+    const report = run([baseline, delivery, policy, join(gerberExamples, file)], exit);
+    assert.equal(report.status, status, file);
+    assert.equal(report.pad_status, 'complete', file);
+    assert.deepEqual(report.differences, [], file);
+    assert.deepEqual(report.pad_warnings, [], file);
+    const pad = report.pad_evidence.find(item => item.ref === 'D1');
+    assert.equal(pad.evidence.pad_count, count, file);
+    assert.equal(pad.evidence.within_tolerance, exit === 0, file);
+    assert.ok(Math.abs(pad.evidence.distance_mm - distance) < 0.0001, file);
+    assert.deepEqual(report.pad_differences.map(({ ref, kind }) => [ref, kind]),
+      exit === 1 ? [['D1', 'pad_offset']] : [], file);
+  }
+});
+
+test('unimplemented Gerber geometry yields diagnostics instead of a copper pass', t => {
+  const work = mkdtempSync(join(tmpdir(), 'moonplacement-gerber-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const file = join(work, 'case.gbr');
+  const original = readFileSync(join(gerberExamples, 'macro-transformed-pass.gbr'), 'utf8');
+  for (const [input, message] of [
+    [original.replace('1,1,$1,$2,0,0*%', '1,1,$1,$2,0,0*1,0,0.2,0,0,0*%'), /多图元光圈宏/],
+    [original.replace('M02*', '%SRX2Y1I1J0*%%SR*%M02*'), /SRX2/],
+  ]) {
+    writeFileSync(file, input);
+    assert.match(run([baseline, delivery, policy, file], 64).message, message);
+  }
+  for (const [statement, message] of [
+    ['%LPC*%D10*X24000000Y13000000D03*', /清除对象/],
+    ['D10*G75*G02*X25000000Y15000000I500000J0D01*', /圆弧/],
+  ]) {
+    writeFileSync(file, original.replace('M02*', statement + 'M02*'));
+    const report = run([baseline, delivery, policy, file], 2);
+    assert.equal(report.reason, 'insufficient_pad_evidence');
+    assert.equal(report.pad_status, 'incomplete');
+    assert.equal(report.pad_checked, 0);
+    assert.match(report.pad_warnings[0].message, message);
+    assert.deepEqual(report.pad_differences, []);
+  }
+});
 
 test('normalizes inches, origin shift and bottom X', () => {
   const report = run([baseline, delivery, policy], 0);
