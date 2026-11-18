@@ -39,13 +39,20 @@ priv struct GerberWord {
 }
 
 ///|
+priv struct CoordinateFormat {
+  digits : Int32
+  decimals : Int32
+  trailing_zeros_omitted : Bool
+}
+
+///|
 priv struct GerberState {
-  mut decimal_digits : Int32
-  mut scale : Double
+  mut format : CoordinateFormat?
+  mut scale : Double?
   apertures : Map[Int32, Shape]
   mut current_aperture : Int32
   mut dark : Bool
-  mut current : Point
+  mut current : Point?
   mut interpolation : Int32
   mut region : Bool
   mut region_points : Array[Point]
@@ -107,8 +114,23 @@ fn parse_number(text : String) -> Double {
 }
 
 ///|
-fn parse_code(value : String) -> Int32 {
-  parse_number(value).to_int()
+fn parse_code(word : GerberWord, source : String) -> Int32 raise GerberError {
+  let mut code = 0
+  let mut digits = 0
+  for _, ch in word.value.iter2() {
+    if !is_digit(ch) || digits >= 6 {
+      raise InvalidGerber(
+        source,
+        "无效的指令编号：\{word.letter}\{word.value}",
+      )
+    }
+    code = code * 10 + digit_value(ch)
+    digits += 1
+  }
+  if digits == 0 {
+    raise InvalidGerber(source, "指令缺少编号：\{word.letter}")
+  }
+  code
 }
 
 ///|
@@ -155,32 +177,58 @@ fn parse_format(
   chars : Array[Char],
   source : String,
 ) -> Unit raise GerberError {
-  let mut index = 2
-  if index < chars.length() &&
-    (chars[index] == 'L' || chars[index] == 'T' || chars[index] == 'D') {
-    index += 1
+  guard chars
+    is [
+      'F',
+      'S',
+      zero_mode,
+      notation,
+      'X',
+      whole,
+      fractional,
+      'Y',
+      y_whole,
+      y_fractional,
+    ] else {
+    raise InvalidGerber(source, "无效的 FS 坐标格式")
   }
-  if index < chars.length() && (chars[index] == 'A' || chars[index] == 'I') {
-    index += 1
+  if notation == 'I' {
+    raise InvalidGerber(
+      source, "不支持增量坐标，请重新导出为绝对坐标",
+    )
   }
-  while index + 2 < chars.length() {
-    let axis = chars[index]
-    if axis == 'X' || axis == 'Y' {
-      state.decimal_digits = digit_value(chars[index + 2])
-    }
-    index += 3
+  if notation != 'A' ||
+    (zero_mode != 'L' && zero_mode != 'T') ||
+    !is_digit(whole) ||
+    !is_digit(fractional) ||
+    whole != y_whole ||
+    fractional != y_fractional {
+    raise InvalidGerber(
+      source, "FS 需要使用相同的 X/Y 位宽和绝对坐标",
+    )
   }
-  if state.decimal_digits < 0 || state.decimal_digits > 9 {
-    raise InvalidGerber(source, "坐标格式的小数位无效")
+  let decimals = digit_value(fractional)
+  let digits = digit_value(whole) + decimals
+  if digits < 1 || digits > 15 {
+    raise InvalidGerber(source, "FS 坐标总位宽必须为 1～15")
   }
+  state.format = Some({
+    digits,
+    decimals,
+    trailing_zeros_omitted: zero_mode == 'T',
+  })
 }
 
 ///|
-fn parse_units(state : GerberState, chars : Array[Char]) -> Unit {
-  if chars.length() >= 4 && chars[2] == 'M' && chars[3] == 'M' {
-    state.scale = 1.0
-  } else if chars.length() >= 4 && chars[2] == 'I' && chars[3] == 'N' {
-    state.scale = 25.4
+fn parse_units(
+  state : GerberState,
+  statement : String,
+  source : String,
+) -> Unit raise GerberError {
+  state.scale = match statement {
+    "MOMM" => Some(1.0)
+    "MOIN" => Some(25.4)
+    _ => raise InvalidGerber(source, "MO 单位必须为 MM 或 IN")
   }
 }
 
@@ -208,7 +256,10 @@ fn parse_aperture(
     raise InvalidGerber(source, "光圈参数缺少逗号")
   }
   index += 1
-  let params = parse_params(chars, index, state.scale)
+  guard state.scale is Some(scale) else {
+    raise InvalidGerber(source, "光圈定义前缺少 MO 单位声明")
+  }
+  let params = parse_params(chars, index, scale)
   let shape = match template {
     'C' => {
       if params.length() < 1 {
@@ -298,8 +349,50 @@ fn gerber_words(chars : Array[Char]) -> Array[GerberWord] {
 }
 
 ///|
-fn coordinate(state : GerberState, text : String) -> Double {
-  parse_number(text) / pow10(state.decimal_digits) * state.scale
+fn coordinate(
+  state : GerberState,
+  word : GerberWord,
+  source : String,
+) -> Double raise GerberError {
+  guard state.format is Some(format) else {
+    raise InvalidGerber(source, "坐标前缺少 FS 格式声明")
+  }
+  guard state.scale is Some(scale) else {
+    raise InvalidGerber(source, "坐标前缺少 MO 单位声明")
+  }
+  let mut digits = 0
+  let mut value = 0.0
+  let mut negative = false
+  for index, ch in word.value.iter2() {
+    if index == 0 && (ch == '+' || ch == '-') {
+      negative = ch == '-'
+    } else if is_digit(ch) && digits < format.digits {
+      value = value * 10.0 + digit_value(ch).to_double()
+      digits += 1
+    } else {
+      raise InvalidGerber(
+        source,
+        "无效或超出 FS 位宽的坐标：\{word.letter}\{word.value}",
+      )
+    }
+  }
+  if digits == 0 {
+    raise InvalidGerber(
+      source,
+      "坐标缺少数值：\{word.letter}\{word.value}",
+    )
+  }
+  let omitted = if format.trailing_zeros_omitted {
+    format.digits - digits
+  } else {
+    0
+  }
+  let mm = value * pow10(omitted) / pow10(format.decimals) * scale
+  if negative {
+    -mm
+  } else {
+    mm
+  }
 }
 
 ///|
@@ -333,19 +426,19 @@ fn process_operation(
   statement : String,
   source : String,
 ) -> Unit raise GerberError {
+  if statement.has_prefix("G04") {
+    return
+  }
   let words = gerber_words(chars)
-  let mut has_x = false
-  let mut has_y = false
-  let mut target_x = state.current.x
-  let mut target_y = state.current.y
+  let mut x : Double? = None
+  let mut y : Double? = None
   let mut operation = -1
-  let mut comment = false
+  let mut has_offset = false
   for word in words {
     match word.letter {
       'G' => {
-        let code = parse_code(word.value)
+        let code = parse_code(word, source)
         match code {
-          4 => comment = true
           1 => state.interpolation = 1
           2 => state.interpolation = 2
           3 => state.interpolation = 3
@@ -354,50 +447,66 @@ fn process_operation(
             state.region_points = []
           }
           37 => flush_region(state)
+          91 =>
+            raise InvalidGerber(
+              source, "不支持增量坐标，请重新导出为绝对坐标",
+            )
           74 | 75 => ()
           _ => ()
         }
       }
-      'X' => {
-        target_x = coordinate(state, word.value)
-        has_x = true
+      'X' => x = Some(coordinate(state, word, source))
+      'Y' => y = Some(coordinate(state, word, source))
+      'I' | 'J' => {
+        let _ = coordinate(state, word, source)
+        has_offset = true
       }
-      'Y' => {
-        target_y = coordinate(state, word.value)
-        has_y = true
-      }
-      'I' | 'J' => ()
       'D' => {
-        let code = parse_code(word.value)
+        let code = parse_code(word, source)
         if code >= 10 {
           state.current_aperture = code
-        } else {
+        } else if code >= 1 && code <= 3 {
           operation = code
+        } else {
+          raise InvalidGerber(source, "不支持的 D 指令：\{word.value}")
         }
       }
-      'M' => if parse_code(word.value) == 2 { return }
-      _ => ()
+      _ =>
+        raise InvalidGerber(source, "无法读取绘图指令：\{statement}")
     }
   }
-  if comment {
+  if operation == -1 {
+    if x is Some(_) || y is Some(_) || has_offset {
+      raise InvalidGerber(
+        source,
+        "坐标缺少 D01、D02 或 D03 指令：\{statement}",
+      )
+    }
     return
   }
-  if !has_x && !has_y {
-    return
+  let target = match (x, y, state.current) {
+    (Some(x), Some(y), _) => { x, y, }
+    (x, y, Some(start)) => { x: x.unwrap_or(start.x), y: y.unwrap_or(start.y), }
+    _ =>
+      raise InvalidGerber(
+        source, "当前位置未定义，请先给出完整 X/Y 坐标",
+      )
   }
-  let target = { x: target_x, y: target_y, }
   match operation {
     1 => {
+      guard state.current is Some(start) else {
+        raise InvalidGerber(source, "绘线前缺少起点")
+      }
       if state.interpolation != 1 {
         state.warnings.push("圆弧已按弦线近似：\{statement}")
       }
       if state.region {
-        state.region_points.push(state.current)
+        state.region_points.push(start)
         state.region_points.push(target)
       } else {
         let shape = current_shape(state, source)
         state.features.push({
-          kind: Draw(shape, state.current, target),
+          kind: Draw(shape, start, target),
           dark: state.dark,
           refdes: feature_refdes(state),
         })
@@ -405,6 +514,9 @@ fn process_operation(
     }
     2 => ()
     3 => {
+      if state.region {
+        raise InvalidGerber(source, "区域轮廓中不能使用 D03")
+      }
       let shape = current_shape(state, source)
       state.features.push({
         kind: Flash(shape, target),
@@ -414,7 +526,7 @@ fn process_operation(
     }
     _ => ()
   }
-  state.current = target
+  state.current = Some(target)
 }
 
 ///|
@@ -430,7 +542,7 @@ fn process_statement(
   if chars.length() >= 2 {
     match (chars[0], chars[1]) {
       ('F', 'S') => return parse_format(state, chars, source)
-      ('M', 'O') => return parse_units(state, chars)
+      ('M', 'O') => return parse_units(state, statement, source)
       ('A', 'D') => return parse_aperture(state, chars, source)
       ('L', 'P') => return parse_polarity(state, chars)
       ('A', 'M') => {
@@ -463,13 +575,18 @@ fn process_statement(
       _ => ()
     }
   }
-  process_operation(state, chars, statement, source)
+  match chars[0] {
+    'G' | 'D' | 'X' | 'Y' | 'I' | 'J' =>
+      process_operation(state, chars, statement, source)
+    _ => ()
+  }
 }
 
 ///|
 /// Parse an RS-274X Gerber file.
 ///
-/// Supported: format spec, mm/inch units, `C`/`R`/`O`/`P` apertures, `G01`
+/// Supported: absolute coordinates with leading or trailing zero omission,
+/// mm/inch units, `C`/`R`/`O`/`P` apertures, `G01`
 /// linear interpolation, `D01`/`D02`/`D03`, `G36`/`G37` regions, `LPD`/`LPC`
 /// polarity and X2 `TO.C` component / `TO.P` pin attributes. Macros and arcs are
 /// approximated and reported through `warnings`.
@@ -478,12 +595,12 @@ pub fn parse_gerber(
   source~ : String,
 ) -> GerberDocument raise GerberError {
   let state : GerberState = {
-    decimal_digits: 4,
-    scale: 1.0,
+    format: None,
+    scale: None,
     apertures: Map([]),
     current_aperture: 0,
     dark: true,
-    current: { x: 0.0, y: 0.0, },
+    current: None,
     interpolation: 1,
     region: false,
     region_points: [],
@@ -493,6 +610,9 @@ pub fn parse_gerber(
     warnings: [],
   }
   for statement in split_statements(text) {
+    if statement == "M02" {
+      break
+    }
     process_statement(state, statement, source)
   }
   { features: state.features, warnings: state.warnings, }

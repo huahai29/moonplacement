@@ -113,6 +113,35 @@ test('reports a pad offset when copper disagrees with the placement', () => {
   );
 });
 
+test('normalizes supported Gerber coordinates and rejects malformed coordinates', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'moonplacement-gerber-format-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const copper = join(directory, 'copper.gbr');
+  const original = readFileSync('examples/top-copper.gbr', 'utf8');
+  const trailing = original.replace('FSLAX46Y46', 'FSTAX46Y46')
+    .replace(/([XY])([0-9]{8})/g, (_, axis, digits) =>
+      axis + digits.padStart(10, '0').replace(/0+$/, ''))
+    .replace('X0024Y0013D03*', 'X0024Y0013D02*\nD03*');
+  assert.notEqual(trailing, original);
+  assert.match(trailing, /D02\*\nD03\*/);
+  writeFileSync(copper, trailing);
+  const good = run([baseline, delivery, policy, copper], 0);
+  assert.equal(good.pad_checked, 5);
+  assert.deepEqual(good.pad_differences, []);
+  for (const [text, message] of [
+    [original.replace('X24000000Y13000000D03', 'XYD03'), /坐标缺少数值/],
+    [original.replace('X24000000Y13000000D03', 'X24000000000Y13000000D03'), /FS 位宽/],
+    [original.replace('FSLAX46Y46', 'FSLIX46Y46'), /增量坐标/],
+    [original.replace('FSLAX46Y46', 'FSLAX46Y45'), /X\/Y 位宽/],
+  ]) {
+    writeFileSync(copper, text);
+    const report = run([baseline, delivery, policy, copper], 64);
+    assert.equal(report.status, 'input_error');
+    assert.equal(report.field, copper);
+    assert.match(report.message, message);
+  }
+});
+
 test('writes an HTML report with a board map', t => {
   const directory = mkdtempSync(join(tmpdir(), 'moonplacement-html-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));

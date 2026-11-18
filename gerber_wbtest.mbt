@@ -85,6 +85,19 @@ test "inch units scale coordinates into millimetres" {
 }
 
 ///|
+test "trailing zero omission, modal axes, and flashes use the file position" {
+  let text = "%FSTAX23Y23*%%MOIN*%%ADD10C,0.04*%D10*" +
+    "X-015Y+02D02*G04 comment mentions G91 and D99*D03*Y003D03*" +
+    "M02*X99Y99D03*"
+  let pads = gerber_pads(parse_gerber(text, source="fixture"))
+  assert_eq(pads.length(), 2)
+  assert_true((pads[0].center.x + 38.1).abs() < 1.0e-9)
+  assert_true((pads[0].center.y - 50.8).abs() < 1.0e-9)
+  assert_true((pads[1].center.x + 38.1).abs() < 1.0e-9)
+  assert_true((pads[1].center.y - 7.62).abs() < 1.0e-9)
+}
+
+///|
 test "regions become filled polygons" {
   let text = "%FSLAX46Y46*%%MOMM*%G36*X1000000Y1000000D02*X2000000Y1000000D01*" +
     "X2000000Y2000000D01*X1000000Y2000000D01*X1000000Y1000000D01*G37*"
@@ -95,7 +108,7 @@ test "regions become filled polygons" {
 
 ///|
 test "unsupported aperture template reports an error" {
-  let result = Ok(parse_gerber("%ADD10Q,1.0*%", source="fixture")) catch {
+  let result = Ok(parse_gerber("%MOMM*%%ADD10Q,1.0*%", source="fixture")) catch {
     error => Err(error)
   }
   assert_true(result is Err(InvalidGerber("fixture", _)))
