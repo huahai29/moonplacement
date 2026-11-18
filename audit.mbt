@@ -301,6 +301,8 @@ pub fn audit(
         }
         CopperOnly => { "status": Json("copper_only") }
         Unverified => { "status": Json("unverified") }
+        PossibleClearance =>
+          { "status": Json("unverified"), "reason": Json("possible_clearance") }
       }
       pad_results.push({
         "ref": Json(refdes),
@@ -317,7 +319,7 @@ pub fn audit(
     "not_requested"
   } else if pad_skipped {
     "skipped"
-  } else if !pad_warnings.is_empty() || pad_checked < pad_results.length() {
+  } else if pad_checked < pad_results.length() {
     "incomplete"
   } else {
     "complete"

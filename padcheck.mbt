@@ -66,27 +66,75 @@ pub fn copper_centroid(pads : Array[CopperPad]) -> Point {
 }
 
 ///|
+fn gerber_object_bounds(kind : GerberKind) -> GerberBounds? {
+  match kind {
+    Flash(shape, center) => Some(bounds_at(center, shape.bounding_radius()))
+    Draw(shape, start, end) => {
+      let radius = shape.bounding_radius()
+      Some(bounds_at(start, radius).union(bounds_at(end, radius)))
+    }
+    Approximate(bounds) => Some(bounds)
+    Region(points) => {
+      guard points.get(0) is Some(first) else { return None }
+      let mut bounds = bounds_at(first, 0.0)
+      for point in points {
+        bounds = bounds.union(bounds_at(point, 0.0))
+      }
+      Some(bounds)
+    }
+  }
+}
+
+///|
+/// Only a clear object painted after a flash can invalidate that flash.
+/// Bounds can rule out an overlap without claiming to compute clipped area.
+fn refs_with_possible_clearance(document : GerberDocument) -> Map[String, Bool] {
+  let affected : Map[String, Bool] = Map([])
+  let later_clear : Array[GerberBounds] = []
+  let count = document.features.length()
+  for i in 0..<count {
+    let feature = document.features[count - i - 1]
+    if !feature.dark {
+      if gerber_object_bounds(feature.kind) is Some(bounds) {
+        later_clear.push(bounds)
+      }
+    } else if !later_clear.is_empty() &&
+      feature.kind is Flash(shape, center) &&
+      feature.refdes is Some(refdes) {
+      let pad_bounds = bounds_at(center, shape.bounding_radius())
+      if later_clear.any(bounds => bounds.overlaps(pad_bounds)) {
+        affected[designator(refdes)] = true
+      }
+    }
+  }
+  affected
+}
+
+///|
 /// Approximate nearby copper from flashes and regions. This cannot establish
-/// which component owns the copper, and does not account for drawn traces.
+/// ownership. A possibly intersecting clear object removes positive evidence.
 pub fn copper_at(
   document : GerberDocument,
   point : Point,
   tolerance : Double,
 ) -> Bool {
   let mut covered = false
+  let search = bounds_at(point, tolerance)
   for feature in document.features {
+    if !feature.dark {
+      if gerber_object_bounds(feature.kind) is Some(bounds) &&
+        bounds.overlaps(search) {
+        covered = false
+      }
+      continue
+    }
     let contains = match feature.kind {
-      Flash(shape, center) =>
-        if feature.dark {
-          shape.expanded(tolerance).contains(center, point)
-        } else {
-          shape.contains(center, point)
-        }
+      Flash(shape, center) => shape.expanded(tolerance).contains(center, point)
       Region(points) => polygon_contains(points, point)
       _ => false
     }
     if contains {
-      covered = feature.dark
+      covered = true
     }
   }
   covered
@@ -97,6 +145,7 @@ priv enum PadEvidence {
   ByReference(Int32, Point, Double)
   CopperOnly
   Unverified
+  PossibleClearance
 }
 
 ///|
@@ -107,15 +156,18 @@ fn pad_evidence(
   tolerance_mm : Double,
 ) -> Array[PadEvidence] {
   let count = positions.length().min(refdes.length())
-  if !document.warnings.is_empty() {
-    return Array::make(count, Unverified)
-  }
   let groups = pad_groups(gerber_pads(document))
+  let affected = refs_with_possible_clearance(document)
   let evidence = []
   for i in 0..<count {
     let point = positions[i]
+    let reference = designator(refdes[i])
+    if affected.contains(reference) {
+      evidence.push(PossibleClearance)
+      continue
+    }
     evidence.push(
-      match groups.get(designator(refdes[i])) {
+      match groups.get(reference) {
         Some(group) if group.any(pad => pad.area > 0.0) => {
           let delta = difference(point, copper_centroid(group))
           ByReference(group.length(), delta, magnitude(delta))

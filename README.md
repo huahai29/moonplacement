@@ -4,6 +4,8 @@
 
 MoonPlacement 用来复核双面 PCB 送厂前的装配文件。输入同一版板子的设计坐标表和送厂坐标表，可以查漏件、错面、偏位和角度偏差。加入 Gerber 铜层后，还能借助焊盘位置核对两张表里可能共有的错误。
 
+**Gerber 目标为完整读取并求值 2024.05 现行图层语义。** 当前光圈宏仅支持单个实心圆或中心线矩形图元。规范覆盖和实测范围见下方验收表。
+
 [示例与复现](examples/README.md) · [Gerber 2024.05 验收](docs/gerber-acceptance.md) · [配置与 JSON 报告](docs/audit.md)
 
 ## 跑一遍示例
@@ -42,9 +44,9 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 
 ## 铜层核对
 
-Gerber 与设计坐标表应使用同一原点和坐标方向。在配置文件参数后追加顶层 Gerber，需要核对底面时再追加底层 Gerber。支持使用绝对坐标的 Gerber 子集，包括前零与尾零省略。[格式范围](docs/audit.md#铜层核对)
+Gerber 与设计坐标表应使用同一原点和坐标方向。在配置文件参数后追加顶层 Gerber，需要核对底面时再追加底层 Gerber。超出验收表可处理范围的几何语法返回输入错误。表中注明可按保守范围处理的圆弧和清除对象，通过诊断说明哪些位号受影响。[命令覆盖表](docs/gerber-acceptance.md#规范命令矩阵)
 
-本项目以完整读取并求值 Gerber 2024.05 现行图层文件为目标。当前已验证单图元参数化光圈宏和镜像、旋转、缩放。D1 算例与覆盖进度见 [Gerber 2024.05 验收](docs/gerber-acceptance.md#输入命令和实测输出)。
+D1 算例验证了单图元参数化光圈宏和镜像、旋转、缩放。[输入与实测输出](docs/gerber-acceptance.md#输入命令和实测输出)
 
 - **按位号核验**。用 X2 `TO.P` 或 `TO.C` 归集焊盘，比较送厂坐标与焊盘面积加权中心。`pad_tolerance_mm` 默认为 0.1 mm。不对称封装的贴装原点可能偏离焊盘中心，需结合封装定义复核。
 - **附近有铜或未核验**。缺少焊盘归属时会标出证据状态。若其余检查没有发现差异，结果为 `indeterminate`。

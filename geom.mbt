@@ -36,6 +36,56 @@ pub fn Shape::area(self : Shape) -> Double {
 }
 
 ///|
+/// Radius of a circle enclosing this centered shape.
+fn Shape::bounding_radius(self : Shape) -> Double {
+  match self {
+    Circle(radius) | Polygon(radius, _) => radius
+    Rectangle(width, height) => @math.hypot(width * 0.5, height * 0.5)
+    Obround(width, height) => width.max(height) * 0.5
+    Transformed(shape, matrix) => shape.bounding_radius() * matrix.scale()
+  }
+}
+
+///|
+pub struct GerberBounds {
+  lower : Point
+  upper : Point
+}
+
+///|
+fn bounds_at(at : Point, radius : Double) -> GerberBounds {
+  {
+    lower: { x: at.x - radius, y: at.y - radius, },
+    upper: { x: at.x + radius, y: at.y + radius, },
+  }
+}
+
+///|
+fn GerberBounds::union(
+  self : GerberBounds,
+  other : GerberBounds,
+) -> GerberBounds {
+  {
+    lower: {
+      x: self.lower.x.min(other.lower.x),
+      y: self.lower.y.min(other.lower.y),
+    },
+    upper: {
+      x: self.upper.x.max(other.upper.x),
+      y: self.upper.y.max(other.upper.y),
+    },
+  }
+}
+
+///|
+fn GerberBounds::overlaps(self : GerberBounds, other : GerberBounds) -> Bool {
+  self.lower.x <= other.upper.x &&
+  other.lower.x <= self.upper.x &&
+  self.lower.y <= other.upper.y &&
+  other.lower.y <= self.upper.y
+}
+
+///|
 fn is_digit(ch : Char) -> Bool {
   ch >= '0' && ch <= '9'
 }

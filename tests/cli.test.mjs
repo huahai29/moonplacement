@@ -38,7 +38,7 @@ test('evaluates flash scaling and transformed aperture macros before auditing pa
   }
 });
 
-test('unimplemented Gerber geometry yields diagnostics instead of a copper pass', t => {
+test('rejects Gerber commands whose geometry cannot be isolated', t => {
   const work = mkdtempSync(join(tmpdir(), 'moonplacement-gerber-'));
   t.after(() => rmSync(work, { recursive: true, force: true }));
   const file = join(work, 'case.gbr');
@@ -46,22 +46,52 @@ test('unimplemented Gerber geometry yields diagnostics instead of a copper pass'
   for (const [input, message] of [
     [original.replace('1,1,$1,$2,0,0*%', '1,1,$1,$2,0,0*1,0,0.2,0,0,0*%'), /多图元光圈宏/],
     [original.replace('M02*', '%SRX2Y1I1J0*%%SR*%M02*'), /SRX2/],
+    [original.replace('M02*', '%ABD20*%%AB*%M02*'), /ABD20/],
   ]) {
     writeFileSync(file, input);
     assert.match(run([baseline, delivery, policy, file], 64).message, message);
   }
+});
+
+test('keeps unrelated flash evidence when a layer has arcs or clear objects', t => {
+  const work = mkdtempSync(join(tmpdir(), 'moonplacement-clearance-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const file = join(work, 'case.gbr');
+  const original = readFileSync(join(gerberExamples, 'macro-transformed-pass.gbr'), 'utf8');
+  const reset = '%LMN*%%LR0*%%LS1*%D10*';
+  const arc = direction => reset + 'X24000000Y13400000D02*G75*' + direction +
+    '*X24400000Y13000000I0J-400000D01*';
   for (const [statement, message] of [
-    ['%LPC*%D10*X24000000Y13000000D03*', /清除对象/],
-    ['D10*G75*G02*X25000000Y15000000I500000J0D01*', /圆弧/],
+    [arc('G02'), /圆弧/],
+    [arc('G03'), /圆弧/],
+    [reset + '%LPC*%X40000000Y40000000D03*', /清除对象/],
+  ]) {
+    writeFileSync(file, original.replace('M02*', statement + 'M02*'));
+    const report = run([baseline, delivery, policy, file], 0);
+    assert.equal(report.pad_status, 'complete');
+    assert.equal(report.pad_checked, 5);
+    assert.match(report.pad_warnings[0].message, message);
+  }
+  for (const statement of [
+    reset + '%LPC*%X24000000Y13000000D03*',
+    '%LPC*%' + arc('G03'),
+    '%LPC*%G75*G36*X24000000Y13400000D02*G03*' +
+      'X24400000Y13000000I0J-400000D01*G01*X24000000Y13400000D01*G37*',
   ]) {
     writeFileSync(file, original.replace('M02*', statement + 'M02*'));
     const report = run([baseline, delivery, policy, file], 2);
     assert.equal(report.reason, 'insufficient_pad_evidence');
     assert.equal(report.pad_status, 'incomplete');
-    assert.equal(report.pad_checked, 0);
-    assert.match(report.pad_warnings[0].message, message);
+    assert.equal(report.pad_checked, 4);
+    assert.deepEqual(report.pad_evidence.find(item => item.ref === 'D1').evidence,
+      { status: 'unverified', reason: 'possible_clearance' });
     assert.deepEqual(report.pad_differences, []);
   }
+  writeFileSync(file, original.replace('%TO.P,D1,1*%',
+    '%LPC*%X24000000Y13000000D03*%LPD*%%TO.P,D1,1*%'));
+  const repainted = run([baseline, delivery, policy, file], 0);
+  assert.equal(repainted.pad_checked, 5);
+  assert.match(repainted.pad_warnings[0].message, /清除对象/);
 });
 
 test('normalizes inches, origin shift and bottom X', () => {

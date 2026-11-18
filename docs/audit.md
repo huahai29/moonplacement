@@ -38,7 +38,7 @@
 - 坐标支持 `FS` 声明的绝对坐标及前零、尾零省略。`MO` 必须声明毫米或英寸，省略的 X/Y 轴沿用当前位置，单独的 `D03` 在当前位置放置焊盘。增量坐标、两轴位宽不一致和无效坐标会返回 `input_error`。见 [Gerber 格式规范](https://www.ucamco.com/en/gerber)。
 - 解析无孔 `C`/`R`/`O`/`P` 光圈、单图元 `AM`、`LM/LR/LS`、`D01`/`D02`/`D03`、单轮廓 `G36`/`G37` 区域和 `LPD`/`LPC` 极性。焊盘归属优先用 X2 `TO.P` 的位号，其次用 `TO.C`。`TD` 支持按属性名清除。格式目标与实测案例见 [Gerber 2024.05 验收](gerber-acceptance.md)。
 - 有位号归属时，计算该器件暗色闪光焊盘的面积加权中心，与送厂坐标比较。差值超过 `pad_tolerance_mm` 记为 `pad_offset`。该中心不一定等于不对称封装的贴装原点；用此结果判断贴装偏位前应确认原点定义。
-- 无归属时，只提供「附近有铜」或「未核验」线索。附近铜只从受支持的闪光和区域近似判断。超出当前范围的宏、块光圈、步进重复会返回输入错误。圆弧或清除对象会产生 `pad_warnings`，并将对应铜层标记为未核验。
+- 无归属时，只提供「附近有铜」或「未核验」线索。附近铜由受支持的闪光和区域提供。超出当前范围的宏、块光圈、步进重复会返回输入错误。圆弧和含弧区域保留保守包围范围及诊断。普通圆弧可与按位号核验的闪光共存。若后绘制的清除对象与焊盘包围范围相交，该位号标为未核验。
 - 两份表都带 `Val` / `Package` 列时，还会逐位号比较型号与封装，差异记为 `value` 与 `package`。
 
 有唯一变换时，只要确认了一项差异，结论即为 `different`。若无差异但所请求的铜层缺少位号证据，结论为 `indeterminate`。没有要求铜层核验时，继续沿用两表判定。
@@ -51,7 +51,7 @@
 - 每个算出平移的 `frame` 都含 `anchor_residuals` 和 `worst_anchor_refs`。逐点残差按配置里的基准顺序给出位号、对齐后送厂点减基准点的 `delta_x_mm`、`delta_y_mm`、二维距离 `distance_mm`、是否在基准容差内以及是否进入一致集合的 `inlier`。`worst_anchor_refs` 包含达到最大残差的全部位号。残差可用于定位复核对象，同一组基准可能有多个并列最差点。
 - `differences` 记录器件差异。即使整体状态为 `indeterminate`，仍列出已确认的 `missing`、`extra`、`side`，以及 `value` 和 `package`。有唯一对齐变换时，也列出 `position` 和 `angle`。某位号缺失、而一个新位号恰好落在它的期望位置时，按改名处理并记为 `swapped`，`with` 给出新位号，不再重复记为 `missing` 和 `extra`。
 - `pad_differences` 记录可归属到位号的 `pad_offset`。`pad_checked` 只计有归属的器件，包含超限器件；`pad_sides` 是用户传入的板面。`pad_status` 为 `not_requested`、`skipped`（无唯一对齐，等同 `pad_skipped: true`）、`incomplete`（缺位号证据）或 `complete`（证据齐全，可能仍有超限）。
-- `pad_evidence` 按位号和板面记录 `by_reference`、`copper_only` 或 `unverified`。`by_reference` 同时给出焊盘数、距离及是否在容差内。`pad_warnings` 按板面列出解析限制提示。
+- `pad_evidence` 按位号和板面记录 `by_reference`、`copper_only` 或 `unverified`。`by_reference` 同时给出焊盘数、距离及是否在容差内。可能被后绘制的清除对象影响时，`unverified` 带 `reason: "possible_clearance"`。`pad_warnings` 保留板面诊断，普通圆弧和远处的清除对象可与 `pad_status: "complete"` 共存。
 - `anchor_issues` 单独记录基准异常。`anchor_missing_baseline`、`anchor_missing_delivery`、`anchor_missing_both` 分别表示缺在基准表、送厂表或两表，`anchor_side` 表示板面不一致。
 - 报告同时记录两表行数、基准位号和本次容差。输入无效时输出 `input_error`、`field` 和 `message`。
 

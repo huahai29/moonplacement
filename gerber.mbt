@@ -13,6 +13,8 @@ pub enum GerberKind {
   Draw(Shape, Point, Point)
   /// A filled region built from `G36`/`G37`.
   Region(Array[Point])
+  /// Conservative bounds for an arc or a region containing an arc.
+  Approximate(GerberBounds)
 }
 
 ///|
@@ -61,6 +63,7 @@ priv struct GerberState {
   mut interpolation : Int32
   mut region : Bool
   mut region_points : Array[Point]
+  mut region_arc_bounds : GerberBounds?
   mut refdes : String?
   mut pin_refdes : String?
   features : Array[GerberFeature]
@@ -450,7 +453,17 @@ fn current_aperture(
 ///|
 fn flush_region(state : GerberState) -> Unit {
   state.region = false
-  if state.region_points.length() >= 3 {
+  if state.region_arc_bounds is Some(arc_bounds) {
+    let mut bounds = arc_bounds
+    for point in state.region_points {
+      bounds = bounds.union(bounds_at(point, 0.0))
+    }
+    state.features.push({
+      kind: Approximate(bounds),
+      dark: state.dark,
+      refdes: feature_refdes(state),
+    })
+  } else if state.region_points.length() >= 3 {
     state.features.push({
       kind: Region(state.region_points),
       dark: state.dark,
@@ -458,6 +471,7 @@ fn flush_region(state : GerberState) -> Unit {
     })
   }
   state.region_points = []
+  state.region_arc_bounds = None
 }
 
 ///|
@@ -474,7 +488,8 @@ fn process_operation(
   let mut x : Double? = None
   let mut y : Double? = None
   let mut operation = -1
-  let mut has_offset = false
+  let mut i_offset : Double? = None
+  let mut j_offset : Double? = None
   for word in words {
     match word.letter {
       'G' => {
@@ -486,6 +501,7 @@ fn process_operation(
           36 => {
             state.region = true
             state.region_points = []
+            state.region_arc_bounds = None
           }
           37 => flush_region(state)
           70 | 71 | 91 =>
@@ -502,10 +518,8 @@ fn process_operation(
       }
       'X' => x = Some(coordinate(state, word, source))
       'Y' => y = Some(coordinate(state, word, source))
-      'I' | 'J' => {
-        let _ = coordinate(state, word, source)
-        has_offset = true
-      }
+      'I' => i_offset = Some(coordinate(state, word, source))
+      'J' => j_offset = Some(coordinate(state, word, source))
       'D' => {
         let code = parse_code(word, source)
         if code >= 10 {
@@ -521,7 +535,10 @@ fn process_operation(
     }
   }
   if operation == -1 {
-    if x is Some(_) || y is Some(_) || has_offset {
+    if x is Some(_) ||
+      y is Some(_) ||
+      i_offset is Some(_) ||
+      j_offset is Some(_) {
       raise InvalidGerber(
         source,
         "坐标缺少 D01、D02 或 D03 指令：\{statement}",
@@ -542,16 +559,35 @@ fn process_operation(
       guard state.current is Some(start) else {
         raise InvalidGerber(source, "绘线前缺少起点")
       }
-      if state.interpolation != 1 {
-        if state.warnings.is_empty() {
-          state.warnings.push(
-            "圆弧目前按弦线近似，此铜层位号核验无法确认",
-          )
+      let arc_radius = if state.interpolation != 1 {
+        let radius = @math.hypot(
+          i_offset.unwrap_or(0.0),
+          j_offset.unwrap_or(0.0),
+        )
+        if radius == 0.0 {
+          raise InvalidGerber(source, "圆弧缺少有效的 I/J 偏移")
         }
+        if state.warnings.is_empty() {
+          state.warnings.push("圆弧几何使用保守包围范围")
+        }
+        // Encloses either sweep, including legacy quadrant modes and rounding
+        // between the start and end radii.
+        Some(2.0 * radius + magnitude(difference(target, start)))
+      } else {
+        None
       }
       if state.region {
         state.region_points.push(start)
         state.region_points.push(target)
+        if arc_radius is Some(radius) {
+          let bounds = bounds_at(start, radius)
+          state.region_arc_bounds = Some(
+            match state.region_arc_bounds {
+              Some(previous) => previous.union(bounds)
+              None => bounds
+            },
+          )
+        }
       } else {
         let aperture = current_aperture(state, source)
         if !aperture.can_draw {
@@ -564,7 +600,11 @@ fn process_operation(
           raise InvalidGerber(source, "描线光圈面积超出可计算范围")
         }
         state.features.push({
-          kind: Draw(shape, start, target),
+          kind: match arc_radius {
+            Some(radius) =>
+              Approximate(bounds_at(start, radius + shape.bounding_radius()))
+            None => Draw(shape, start, target)
+          },
           dark: state.dark,
           refdes: feature_refdes(state),
         })
@@ -699,7 +739,7 @@ fn process_statement(
 /// linear interpolation, `D01`/`D02`/`D03`, `G36`/`G37` regions, `LPD`/`LPC`
 /// polarity, LM/LR/LS and X2 `TO.C` component / `TO.P` pin attributes.
 /// Macros support a single exposed circle or center line with literal fields
-/// or direct AD parameters. Arcs are approximated and reported through warnings.
+/// or direct AD parameters. Arcs retain conservative bounds and a warning.
 pub fn parse_gerber(
   text : String,
   source~ : String,
@@ -719,6 +759,7 @@ pub fn parse_gerber(
     interpolation: 1,
     region: false,
     region_points: [],
+    region_arc_bounds: None,
     refdes: None,
     pin_refdes: None,
     features: [],
@@ -735,7 +776,7 @@ pub fn parse_gerber(
   }
   if state.features.any(feature => !feature.dark) {
     state.warnings.push(
-      "包含清除对象，完整极性合成实现前不对该层作位号核验",
+      "清除对象按保守范围确定可能受影响的焊盘",
     )
   }
   { features: state.features, warnings: state.warnings, }
