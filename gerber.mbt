@@ -11,9 +11,11 @@ pub enum GerberKind {
   Flash(Shape, Point)
   /// A stroked segment (`D01`) with the current aperture as its width.
   Draw(Shape, Point, Point)
+  /// A directed circular stroke outside a region.
+  Arc(GerberArc)
   /// A filled region built from `G36`/`G37`.
   Region(Array[Point])
-  /// Conservative bounds for an arc or a region containing an arc.
+  /// Conservative bounds for a region containing an arc.
   Approximate(GerberBounds)
 }
 
@@ -61,6 +63,7 @@ priv struct GerberState {
   mut dark : Bool
   mut current : Point?
   mut interpolation : Int32
+  mut quadrant_mode : Int32
   mut region : Bool
   mut region_points : Array[Point]
   mut region_arc_bounds : GerberBounds?
@@ -484,7 +487,8 @@ fn process_operation(
             raise InvalidGerber(
               source, "不支持旧版单位或增量坐标指令，请以 FS 和 MO 声明",
             )
-          54 | 55 | 74 | 75 | 90 => ()
+          74 | 75 => state.quadrant_mode = code
+          54 | 55 | 90 => ()
           _ =>
             raise InvalidGerber(
               source,
@@ -535,28 +539,38 @@ fn process_operation(
       guard state.current is Some(start) else {
         raise InvalidGerber(source, "绘线前缺少起点")
       }
-      let arc_radius = if state.interpolation != 1 {
-        let radius = @math.hypot(
-          i_offset.unwrap_or(0.0),
-          j_offset.unwrap_or(0.0),
-        )
-        if radius == 0.0 {
-          raise InvalidGerber(source, "圆弧缺少有效的 I/J 偏移")
+      let offset : Point? = if state.interpolation != 1 {
+        if state.quadrant_mode == 74 {
+          raise InvalidGerber(
+            source, "暂不支持旧版 G74 单象限圆弧，请导出 G75",
+          )
         }
-        if state.warnings.is_empty() {
-          state.warnings.push("圆弧几何使用保守包围范围")
+        if state.quadrant_mode != 75 {
+          raise InvalidGerber(source, "圆弧绘制前必须声明 G75")
         }
-        // Encloses either sweep, including legacy quadrant modes and rounding
-        // between the start and end radii.
-        Some(2.0 * radius + magnitude(difference(target, start)))
+        Some({ x: i_offset.unwrap_or(0.0), y: j_offset.unwrap_or(0.0), })
       } else {
         None
       }
       if state.region {
         state.region_points.push(start)
         state.region_points.push(target)
-        if arc_radius is Some(radius) {
-          let bounds = bounds_at(start, radius)
+        if offset is Some(offset) {
+          let arc = make_gerber_arc(
+            start,
+            target,
+            offset,
+            state.interpolation == 2,
+            0.0,
+            source,
+          )
+          if state.region_arc_bounds is None &&
+            !state.warnings.contains(
+              "含圆弧的区域使用保守包围范围",
+            ) {
+            state.warnings.push("含圆弧的区域使用保守包围范围")
+          }
+          let bounds = arc.bounds()
           state.region_arc_bounds = Some(
             match state.region_arc_bounds {
               Some(previous) => previous.union(bounds)
@@ -576,9 +590,18 @@ fn process_operation(
           raise InvalidGerber(source, "描线光圈面积超出可计算范围")
         }
         state.features.push({
-          kind: match arc_radius {
-            Some(radius) =>
-              Approximate(bounds_at(start, radius + shape.bounding_radius()))
+          kind: match offset {
+            Some(offset) =>
+              Arc(
+                make_gerber_arc(
+                  start,
+                  target,
+                  offset,
+                  state.interpolation == 2,
+                  shape.bounding_radius(),
+                  source,
+                ),
+              )
             None => Draw(shape, start, target)
           },
           dark: state.dark,
@@ -710,12 +733,10 @@ fn process_statement(
 ///|
 /// Parse an RS-274X Gerber file.
 ///
-/// Supported: absolute coordinates with leading or trailing zero omission,
-/// mm/inch units, `C`/`R`/`O`/`P` apertures, `G01`
-/// linear interpolation, `D01`/`D02`/`D03`, `G36`/`G37` regions, `LPD`/`LPC`
-/// polarity, LM/LR/LS and X2 `TO.C` component / `TO.P` pin attributes.
-/// Macros support a single exposed circle or center line with literal fields
-/// or direct AD parameters. Arcs retain conservative bounds and a warning.
+/// Reads standard apertures, selected macros, flashes, strokes, single-contour
+/// regions, polarity and X2 component/pin attributes. G75 circular strokes
+/// retain their geometry; arc segments inside a region still produce a warning
+/// and conservative bounds.
 pub fn parse_gerber(
   text : String,
   source~ : String,
@@ -733,6 +754,7 @@ pub fn parse_gerber(
     dark: true,
     current: None,
     interpolation: 1,
+    quadrant_mode: 0,
     region: false,
     region_points: [],
     region_arc_bounds: None,

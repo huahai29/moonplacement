@@ -74,6 +74,7 @@ fn gerber_object_bounds(kind : GerberKind) -> GerberBounds? {
       Some(bounds_at(start, radius).union(bounds_at(end, radius)))
     }
     Approximate(bounds) => Some(bounds)
+    Arc(arc) => Some(arc.bounds())
     Region(points) => {
       guard points.get(0) is Some(first) else { return None }
       let mut bounds = bounds_at(first, 0.0)
@@ -95,6 +96,14 @@ fn in_flash_hole(kind : GerberKind, point : Point, margin : Double) -> Bool {
 }
 
 ///|
+fn clear_may_cover(kind : GerberKind, point : Point, margin : Double) -> Bool {
+  match kind {
+    Arc(arc) => arc.may_cover(point, margin)
+    _ => !in_flash_hole(kind, point, margin)
+  }
+}
+
+///|
 /// Only a clear object painted after a flash can invalidate that flash.
 /// Bounds can rule out an overlap without claiming to compute clipped area.
 fn refs_with_possible_clearance(document : GerberDocument) -> Map[String, Bool] {
@@ -113,7 +122,7 @@ fn refs_with_possible_clearance(document : GerberDocument) -> Map[String, Bool] 
       let radius = shape.bounding_radius()
       let pad_bounds = bounds_at(center, radius)
       if later_clear.any(item => {
-          item.1.overlaps(pad_bounds) && !in_flash_hole(item.0, center, radius)
+          item.1.overlaps(pad_bounds) && clear_may_cover(item.0, center, radius)
         }) {
         affected[designator(refdes)] = true
       }
@@ -123,7 +132,7 @@ fn refs_with_possible_clearance(document : GerberDocument) -> Map[String, Bool] 
 }
 
 ///|
-/// Approximate nearby copper from flashes and regions. This cannot establish
+/// Approximate nearby copper from flashes, arc strokes and regions. This cannot establish
 /// ownership. A possibly intersecting clear object removes positive evidence.
 pub fn copper_at(
   document : GerberDocument,
@@ -136,7 +145,7 @@ pub fn copper_at(
     if !feature.dark {
       if gerber_object_bounds(feature.kind) is Some(bounds) &&
         bounds.overlaps(search) &&
-        !in_flash_hole(feature.kind, point, tolerance) {
+        clear_may_cover(feature.kind, point, tolerance) {
         covered = false
       }
       continue
@@ -144,6 +153,7 @@ pub fn copper_at(
     let contains = match feature.kind {
       Flash(shape, center) => shape.expanded(tolerance).contains(center, point)
       Region(points) => polygon_contains(points, point)
+      Arc(arc) => arc.covers(point, tolerance)
       _ => false
     }
     if contains {

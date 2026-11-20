@@ -135,5 +135,32 @@
       }
     ],
     "pad_differences": []
+  },
+  "arc-clearance.gbr": {
+    "exit_code": 2,
+    "status": "indeterminate",
+    "pad_status": "incomplete",
+    "pad_checked": 4,
+    "pad_evidence": [
+      {
+        "ref": "C1",
+        "side": "top",
+        "evidence": {
+          "status": "unverified",
+          "reason": "possible_clearance"
+        }
+      },
+      {
+        "ref": "U3",
+        "side": "top",
+        "evidence": {
+          "status": "by_reference",
+          "pad_count": 1,
+          "distance_mm": 0,
+          "within_tolerance": true
+        }
+      }
+    ],
+    "pad_differences": []
   }
 }

@@ -81,15 +81,16 @@ test('keeps unrelated flash evidence when a layer has arcs or clear objects', t 
   const arc = direction => reset + 'X24000000Y13400000D02*G75*' + direction +
     '*X24400000Y13000000I0J-400000D01*';
   for (const [statement, message] of [
-    [arc('G02'), /圆弧/],
-    [arc('G03'), /圆弧/],
+    [arc('G02'), null],
+    [arc('G03'), null],
     [reset + '%LPC*%X40000000Y40000000D03*', /清除对象/],
   ]) {
     writeFileSync(file, original.replace('M02*', statement + 'M02*'));
     const report = run([baseline, delivery, policy, file], 0);
     assert.equal(report.pad_status, 'complete');
     assert.equal(report.pad_checked, 5);
-    assert.match(report.pad_warnings[0].message, message);
+    if (message) assert.match(report.pad_warnings[0].message, message);
+    else assert.deepEqual(report.pad_warnings, []);
   }
   for (const statement of [
     reset + '%LPC*%X24000000Y13000000D03*',
@@ -111,6 +112,19 @@ test('keeps unrelated flash evidence when a layer has arcs or clear objects', t 
   const repainted = run([baseline, delivery, policy, file], 0);
   assert.equal(repainted.pad_checked, 5);
   assert.match(repainted.pad_warnings[0].message, /清除对象/);
+});
+
+test('clearance follows the arc sweep instead of marking all pads in its bounds', () => {
+  const file = join(gerberExamples, 'arc-clearance.gbr');
+  const report = run([baseline, delivery, policy, file], 2);
+  assert.equal(report.pad_status, 'incomplete');
+  assert.equal(report.pad_checked, 4);
+  assert.deepEqual(report.pad_evidence.filter(({ evidence }) => evidence.status === 'unverified'),
+    [{ ref: 'C1', side: 'top', evidence: { status: 'unverified', reason: 'possible_clearance' } }]);
+  const u3 = report.pad_evidence.find(({ ref }) => ref === 'U3').evidence;
+  assert.equal(u3.status, 'by_reference');
+  assert.equal(u3.within_tolerance, true);
+  assert.deepEqual(report.pad_differences, []);
 });
 
 test('normalizes inches, origin shift and bottom X', () => {

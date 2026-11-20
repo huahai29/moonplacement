@@ -282,3 +282,73 @@ test "a layer-clear flash cannot erase copper through its transparent hole" {
   assert_false(affected.contains("R1"))
   assert_true(affected.contains("R2"))
 }
+
+///|
+fn arc_fixture(
+  commands : String,
+  definition~ : String = "%ADD10C,0.2*%",
+) -> String {
+  "%FSLAX46Y46*%%MOMM*%" + definition + "D10*" + commands + "M02*"
+}
+
+///|
+test "circular strokes respect direction, width, endpoints and full turns" {
+  let quarter = "X1000000Y0D02*G75*G03*X0Y1000000I-1000000D01*"
+  let ccw = parse_gerber(arc_fixture(quarter), source="arc")
+  let cw = parse_gerber(
+    arc_fixture(quarter.replace(old="G03", new="G02")),
+    source="arc",
+  )
+  let north_east : Point = { x: 0.70710678, y: 0.70710678, }
+  let south : Point = { x: 0.0, y: -1.0, }
+  assert_true(copper_at(ccw, north_east, 0.0))
+  assert_false(copper_at(cw, north_east, 0.0))
+  assert_false(copper_at(ccw, south, 0.0))
+  assert_true(copper_at(cw, south, 0.0))
+  assert_true(copper_at(ccw, { x: 1.0, y: -0.08, }, 0.0))
+  assert_false(copper_at(ccw, { x: 1.0, y: -0.15, }, 0.0))
+  assert_true(copper_at(ccw, { x: 1.0, y: -0.15, }, 0.06))
+  let full = parse_gerber(
+    arc_fixture("X1000000Y0D02*G75*G02*I-1000000J0D01*"),
+    source="arc",
+  )
+  assert_true(copper_at(full, south, 0.0))
+  assert_false(copper_at(full, { x: 0.0, y: 0.0, }, 0.0))
+  let zero = parse_gerber(
+    arc_fixture(quarter, definition="%ADD10C,0*%"),
+    source="arc",
+  )
+  assert_false(copper_at(zero, north_east, 0.1))
+}
+
+///|
+test "radial rounding is conservative for both dark and clear strokes" {
+  let arc = "X1000000Y0D02*G75*G03*X0Y1001000I-1000000J0D01*"
+  let document = parse_gerber(arc_fixture(arc), source="rounded arc")
+  let border : Point = { x: 0.7778, y: 0.7778, }
+  let centerline : Point = { x: 0.7072, y: 0.7072, }
+  assert_false(copper_at(document, border, 0.0))
+  assert_true(copper_at(document, centerline, 0.0))
+  guard! document.features[0].kind is Arc(stroke)
+  assert_true(stroke.may_cover(border, 0.0))
+  assert_false(stroke.may_cover({ x: 0.78, y: 0.78, }, 0.0))
+}
+
+///|
+test "ambiguous legacy mode and undefined arc geometry report input errors" {
+  for
+    (command, reason) in [
+      ("G03*X0Y1000000I-1000000D01*", "G75"),
+      ("G74*G03*X0Y1000000I1000000D01*", "G74"),
+      ("G75*G03*X0Y1000000I0J0D01*", "I/J"),
+      ("G75*G03*X0Y0I-1000000J0D01*", "终点"),
+    ] {
+    let result = Ok(
+      parse_gerber(arc_fixture("X1000000Y0D02*" + command), source="bad arc"),
+    ) catch {
+      error => Err(error)
+    }
+    guard! result is Err(InvalidGerber("bad arc", detail))
+    assert_true(detail.contains(reason))
+  }
+}

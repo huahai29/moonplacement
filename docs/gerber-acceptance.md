@@ -18,13 +18,13 @@
 | `AD` | 部分处理 | 单测「standard apertures subtract a concentric round hole」、D1 圆孔对照 | 标准 `C/R/O/P` 支持实心和同心圆孔。零直径孔、碰到外边界的孔，以及仍不支持的模板报输入错误 |
 | `AM` | 部分处理 | MoonBit 单测「off-center clearance」、D1 圆孔对照、KiCad U3 实导出 | 支持单个实心圆（1）或中心线矩形（21）内开一个圆孔、KiCad 的圆角轮廓组合（4、1、20）及数值表达式。跨边界切除、多个清除图元或其他组合报输入错误 |
 | `Dnn` | 已实现 | 单测「parses flashes」在两种光圈间切换 | 使用未定义光圈绘图时报输入错误 |
-| `D01` | 部分处理 | 单测「regions become filled polygons」、CLI 圆弧回归 | 直线保留图形。圆弧使用保守包围。非法光圈或缺失起点报输入错误 |
+| `D01` | 部分处理 | CLI 圆弧清除对照、KiCad 实导出 | 普通圆弧按方向和线宽求值；含弧区域仍保留保守包围。非法光圈或缺失起点报输入错误 |
 | `D02` | 已实现 | 单测「trailing zero omission」 | 未建立当前位置时须提供两轴坐标 |
 | `D03` | 已实现 | 三个 D1 案例、单测「macro rotation」 | 继承模态坐标。缺少位置或光圈报输入错误 |
 | `G01` | 已实现 | CLI 核验直线区域与位号证据的回归文件 | 后续 D01 进入直线模式 |
-| `G02` | 部分处理 | CLI「keeps unrelated flash evidence」顺时针案例 | 保守包围并警告。缺少有效 I/J 报输入错误 |
-| `G03` | 部分处理 | 同一 CLI 回归的逆时针和清除圆弧案例 | 保守包围并警告。影响范围内的位号标为未核验 |
-| `G75` | 部分处理 | 同一 CLI 回归显式声明 G75 | 读取多象限声明。精确圆弧及其状态校验待完成 |
+| `G02` | 部分处理 | 圆弧清除对照、顺时针及整圆单测 | 支持普通顺时针描线；含弧区域仍为近似 |
+| `G03` | 部分处理 | 逆时针、端帽及舍入误差单测 | 支持普通逆时针描线；含弧区域仍为近似 |
+| `G75` | 部分处理 | 单测「ambiguous legacy mode」、KiCad 实导出 | 多象限模式已验证；缺少 G75 或使用旧版 G74 的圆弧报输入错误。兼容将一个为零的 I/J 省略 |
 | `LP` | 部分处理 | CLI 清除在闪光前、在闪光后及位于远处的对照 | 按绘制先后和保守包围筛选受影响位号，完整布尔合成待完成 |
 | `LM` | 已实现 | D1 偏心宏及单测「macro rotation」 | 识别 N/X/Y/XY。未知模式报输入错误 |
 | `LR` | 已实现 | D1 偏心宏及单测「macro rotation」 | 按原始光圈应用旋转，非法角度报输入错误 |
@@ -43,7 +43,7 @@
 
 发布门槛以规范 §2.12 的合规读取要求和第 3 至 5 章语义为准。按 §2.8 逐项补足后，还需将合法公开文件的几何与独立 Gerber 实现对照，校验宏、变换、极性、重复的组合及属性归属。上述矩阵用于记录进度，发布证据还应给出对照所用文件、工具版本和差异阈值。
 
-圆弧诊断与逐位号证据独立。后绘制的清除对象可能与某个焊盘相交时，该器件标为 `unverified`，原因是 `possible_clearance`，其余器件照常核验。保守包围可能把部分未实际相交的焊盘列为待复查。报告保留已确认的差异。超出当前可处理范围的几何命令报输入错误。
+后绘制的清除圆弧按扫过的角度、端部和线宽检查焊盘。起止半径不一致时，按半径差保留误差余量；焊盘用外接圆筛查。可能相交的位号标为 `unverified`，原因是 `possible_clearance`，其余器件照常核验。含弧区域仍用保守包围范围并提示，暂不计算裁切后的铜面积。
 
 ## 输入、命令和实测输出
 
@@ -76,3 +76,9 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 | [宏孔下方已有铜](../examples/gerber/hole-macro-underlay.gbr) | `copper_only`，孔下先绘制的铜仍可见 |
 
 四种情况均因 D1 无法归属而退出 2，其余四颗照常按位号核验。见[实测 JSON 摘录](../examples/gerber/results.json)。面积和几何中心从外形中扣除圆孔，单测也检查了偏心孔经镜像、旋转和缩放后的结果。透明孔及宏内清除的定义见 [Ucamco 规范 §4.4.6、§4.5.2](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf)。
+
+### 圆弧清除对照
+
+用上方同一条 CLI 命令，把最后的文件换成 [`arc-clearance.gbr`](../examples/gerber/arc-clearance.gbr)。清除弧以 `(20, 10) mm` 为圆心、半径为 10 mm，从 C1 的中心 `(30, 10) mm` 顺时针扫过 90°。U3 在同一圆周却位于反方向。旧包围范围包含两颗焊盘；现在只有 C1 标记为 `possible_clearance`，U3 和其他三颗继续按位号核验，退出码为 2。见[实测 JSON 摘录](../examples/gerber/results.json)。
+
+[KiCad 实导出](../examples/README.md#铜层实导出验证)另检查真实铜层中存在圆弧描线，且六颗器件的位号核验不受干扰。圆弧方向及起止半径误差见 [Ucamco 规范 §4.7.2](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf#page=77)。

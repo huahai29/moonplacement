@@ -42,7 +42,7 @@ moon build --target js
 node tests/kicad-export.mjs
 ```
 
-脚本用 KiCad 实际导出两份坐标表及顶、底 Gerber，再运行 MoonPlacement。KiCad 只用于生成验收数据，使用 MoonPlacement 核对已有文件时不用安装它。输出在 `_build/kicad-evidence/`，CI 也保存这份目录。
+脚本用 KiCad 实际导出两份坐标表及顶、底 Gerber，再运行 MoonPlacement。顶层导出必须包含圆弧走线。KiCad 只用于生成验收数据，使用 MoonPlacement 核对已有文件时不用安装它。输出在 `_build/kicad-evidence/`，CI 也保存这份目录。
 
 | 用例 | 预期结果 |
 | --- | --- |
