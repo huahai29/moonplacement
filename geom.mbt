@@ -17,6 +17,9 @@ pub enum Shape {
   Transformed(Shape, Transform2D)
   /// Convex outline relative to the copper centroid and its rounding radius.
   RoundedOutline(Array[Point], Double)
+  /// Solid shape, outer center, hole center (both relative to the copper
+  /// centroid), and hole radius in mm.
+  RoundHole(Shape, Point, Point, Double)
 }
 
 ///|
@@ -34,6 +37,8 @@ pub fn Shape::area(self : Shape) -> Double {
       0.5 * count * radius * radius * @math.sin(2.0 * @math.PI / count)
     }
     RoundedOutline(vertices, radius) => rounded_outline_area(vertices, radius)
+    RoundHole(shape, _, _, radius) =>
+      shape.area() - @math.PI * radius.max(0.0) * radius.max(0.0)
     Transformed(shape, matrix) => shape.area() * matrix.determinant().abs()
   }
 }
@@ -53,6 +58,30 @@ fn Shape::bounding_radius(self : Shape) -> Double {
       result + radius
     }
     Transformed(shape, matrix) => shape.bounding_radius() * matrix.scale()
+    RoundHole(shape, outer, _, _) =>
+      shape.bounding_radius() + @math.hypot(outer.x, outer.y)
+  }
+}
+
+///|
+/// World-space disk that the aperture does not paint, including under LPC.
+fn Shape::transparent_hole(self : Shape, center : Point) -> (Point, Double)? {
+  match self {
+    RoundHole(_, _, hole, radius) =>
+      Some(({ x: center.x + hole.x, y: center.y + hole.y, }, radius))
+    Transformed(shape, matrix) => {
+      guard shape.transparent_hole({ x: 0.0, y: 0.0, }) is Some((hole, radius)) else {
+        return None
+      }
+      let offset = matrix.apply(hole)
+      Some(
+        (
+          { x: center.x + offset.x, y: center.y + offset.y, },
+          radius * matrix.scale(),
+        ),
+      )
+    }
+    _ => None
   }
 }
 
@@ -177,6 +206,8 @@ pub fn Shape::expanded(self : Shape, amount : Double) -> Shape {
     Polygon(radius, sides) => Polygon(radius + amount, sides)
     RoundedOutline(vertices, radius) =>
       RoundedOutline(vertices, radius + amount)
+    RoundHole(shape, outer, hole, radius) =>
+      RoundHole(shape.expanded(amount), outer, hole, radius - amount)
     Transformed(shape, matrix) =>
       Transformed(shape.expanded(amount / matrix.scale()), matrix)
   }
@@ -199,6 +230,9 @@ pub fn Shape::contains(self : Shape, center : Point, point : Point) -> Bool {
     }
     RoundedOutline(vertices, radius) =>
       rounded_outline_contains(vertices, radius, { x: dx, y: dy, })
+    RoundHole(shape, outer, hole, radius) =>
+      (radius <= 0.0 || @math.hypot(dx - hole.x, dy - hole.y) >= radius) &&
+      shape.contains(outer, { x: dx, y: dy, })
     Transformed(shape, matrix) => {
       let determinant = matrix.determinant()
       if determinant == 0.0 {

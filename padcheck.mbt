@@ -86,23 +86,35 @@ fn gerber_object_bounds(kind : GerberKind) -> GerberBounds? {
 }
 
 ///|
+fn in_flash_hole(kind : GerberKind, point : Point, margin : Double) -> Bool {
+  guard kind is Flash(shape, center) &&
+    shape.transparent_hole(center) is Some((hole, radius)) else {
+    return false
+  }
+  @math.hypot(point.x - hole.x, point.y - hole.y) + margin < radius
+}
+
+///|
 /// Only a clear object painted after a flash can invalidate that flash.
 /// Bounds can rule out an overlap without claiming to compute clipped area.
 fn refs_with_possible_clearance(document : GerberDocument) -> Map[String, Bool] {
   let affected : Map[String, Bool] = Map([])
-  let later_clear : Array[GerberBounds] = []
+  let later_clear : Array[(GerberKind, GerberBounds)] = []
   let count = document.features.length()
   for i in 0..<count {
     let feature = document.features[count - i - 1]
     if !feature.dark {
       if gerber_object_bounds(feature.kind) is Some(bounds) {
-        later_clear.push(bounds)
+        later_clear.push((feature.kind, bounds))
       }
     } else if !later_clear.is_empty() &&
       feature.kind is Flash(shape, center) &&
       feature.refdes is Some(refdes) {
-      let pad_bounds = bounds_at(center, shape.bounding_radius())
-      if later_clear.any(bounds => bounds.overlaps(pad_bounds)) {
+      let radius = shape.bounding_radius()
+      let pad_bounds = bounds_at(center, radius)
+      if later_clear.any(item => {
+          item.1.overlaps(pad_bounds) && !in_flash_hole(item.0, center, radius)
+        }) {
         affected[designator(refdes)] = true
       }
     }
@@ -123,7 +135,8 @@ pub fn copper_at(
   for feature in document.features {
     if !feature.dark {
       if gerber_object_bounds(feature.kind) is Some(bounds) &&
-        bounds.overlaps(search) {
+        bounds.overlaps(search) &&
+        !in_flash_hole(feature.kind, point, tolerance) {
         covered = false
       }
       continue

@@ -38,13 +38,32 @@ test('evaluates flash scaling and transformed aperture macros before auditing pa
   }
 });
 
+test('distinguishes transparent holes from solid copper and preserves earlier copper', () => {
+  for (const [file, evidence] of [
+    ['hole-solid.gbr', 'copper_only'],
+    ['hole-standard.gbr', 'unverified'],
+    ['hole-macro.gbr', 'unverified'],
+    ['hole-macro-underlay.gbr', 'copper_only'],
+  ]) {
+    const report = run([baseline, delivery, policy, join(gerberExamples, file)], 2);
+    assert.equal(report.reason, 'insufficient_pad_evidence', file);
+    assert.equal(report.pad_checked, 4, file);
+    assert.equal(report.pad_status, 'incomplete', file);
+    assert.deepEqual(report.pad_evidence.find(({ ref }) => ref === 'D1').evidence,
+      { status: evidence }, file);
+    assert.deepEqual(report.pad_differences, [], file);
+    assert.deepEqual(report.pad_warnings, [], file);
+  }
+});
+
 test('rejects Gerber commands whose geometry cannot be isolated', t => {
   const work = mkdtempSync(join(tmpdir(), 'moonplacement-gerber-'));
   t.after(() => rmSync(work, { recursive: true, force: true }));
   const file = join(work, 'case.gbr');
   const original = readFileSync(join(gerberExamples, 'macro-transformed-pass.gbr'), 'utf8');
   for (const [input, message] of [
-    [original.replace('1,1,$1,$2,0,0*%', '1,1,$1,$2,0,0*1,0,0.2,0,0,0*%'), /多图元光圈宏/],
+    [original.replace('1,1,$1,$2,0,0*%', '1,1,$1,$2,0,0*1,0,0.2,0,0,0*%'), /圆孔必须/],
+    [original.replace('1,1,$1,$2,0,0*%', '1,1,$1,$2,0,0*1,0,0.2,0,0,0*1,1,0.1,0,0,0*%'), /多图元光圈宏/],
     [original.replace('M02*', '%SRX2Y1I1J0*%%SR*%M02*'), /SRX2/],
     [original.replace('M02*', '%ABD20*%%AB*%M02*'), /ABD20/],
   ]) {

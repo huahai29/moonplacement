@@ -198,3 +198,87 @@ test "macro expressions respect precedence, assignments and undefined variable d
   guard! result is Err(InvalidGerber("test", message))
   assert_true(message.contains("不能重新定义变量"))
 }
+
+///|
+test "standard apertures subtract a concentric round hole for each template" {
+  for
+    (template, outside_area) in [
+      ("C,4X1", 4.0 * @math.PI),
+      ("R,4X3X1", 12.0),
+      ("O,4X3X1", 3.0 + 2.25 * @math.PI),
+      ("P,4X4X30X1", 8.0),
+    ] {
+    let document = parse_gerber(
+      "%FSLAX46Y46*%%MOMM*%%ADD10" +
+      template +
+      "*%D10*%LS2*%X1000000Y2000000D03*M02*",
+      source="standard holes",
+    )
+    guard! gerber_pads(document) is [pad]
+    assert_true((pad.area - (4.0 * outside_area - @math.PI)).abs() < 1.0e-12)
+    assert_eq(pad.center.x, 1.0)
+    assert_eq(pad.center.y, 2.0)
+    assert_false(copper_at(document, pad.center, 0.1))
+    assert_true(copper_at(document, { x: 1.95, y: 2.0, }, 0.1))
+    assert_true(copper_at(document, { x: 2.1, y: 2.0, }, 0.0))
+  }
+}
+
+///|
+test "off-center clearance changes copper centroid and follows aperture transforms" {
+  let document = parse_gerber(
+    "%FSLAX46Y46*%%MOMM*%%AMWindow*21,1,4,3,1,0,90*1,0,1,1.5,0,90*%" +
+    "%ADD10Window*%D10*%LMX*%%LR90*%%LS2*%X10000000Y20000000D03*M02*",
+    source="window",
+  )
+  guard! gerber_pads(document) is [pad]
+  // The 4-by-3 rectangle is scaled by 2. Its unit-radius hole is removed
+  // at x=7 rather than the rectangle center x=8.
+  let expected_x = 8.0 + @math.PI / (48.0 - @math.PI)
+  assert_true((pad.center.x - expected_x).abs() < 1.0e-12)
+  assert_true((pad.center.y - 20.0).abs() < 1.0e-12)
+  assert_true((pad.area - (48.0 - @math.PI)).abs() < 1.0e-12)
+  assert_false(copper_at(document, { x: 7.0, y: 20.0, }, 0.1))
+  assert_true(copper_at(document, { x: 8.1, y: 20.0, }, 0.0))
+}
+
+///|
+test "invalid standard holes and macro cuts are refused instead of approximated" {
+  for
+    (definition, commands, reason) in [
+      ("%ADD10C,2X0*%", "X0Y0D03*", "圆孔"),
+      ("%ADD10R,4X2X2*%", "X0Y0D03*", "圆孔"),
+      ("%ADD10O,4X2X2.1*%", "X0Y0D03*", "圆孔"),
+      ("%ADD10P,2X4X0X1.5*%", "X0Y0D03*", "圆孔"),
+      ("%ADD10C,2X1*%", "X0Y0D02*X1000000D01*", "D01"),
+      ("%AMClip*1,1,2,0,0*1,0,1,0.75,0*%%ADD10Clip*%", "X0Y0D03*", "圆孔"),
+    ] {
+    let result = Ok(
+      parse_gerber(
+        "%FSLAX46Y46*%%MOMM*%" + definition + "D10*" + commands + "M02*",
+        source="bad hole",
+      ),
+    ) catch {
+      error => Err(error)
+    }
+    guard! result is Err(InvalidGerber("bad hole", message))
+    assert_true(message.contains(reason))
+  }
+}
+
+///|
+test "a layer-clear flash cannot erase copper through its transparent hole" {
+  let document = parse_gerber(
+    "%FSLAX46Y46*%%MOMM*%%ADD10C,0.25*%%ADD11C,4X1*%" +
+    "D10*%TO.P,R1,1*%X0Y0D03*%TO.P,R2,1*%X1500000Y0D03*%TD*%" +
+    "%LPC*%%LS2*%D11*X0Y0D03*M02*",
+    source="clear ring",
+  )
+  let hole : Point = { x: 0.0, y: 0.0, }
+  let band : Point = { x: 1.5, y: 0.0, }
+  assert_true(copper_at(document, hole, 0.1))
+  assert_false(copper_at(document, band, 0.1))
+  let affected = refs_with_possible_clearance(document)
+  assert_false(affected.contains("R1"))
+  assert_true(affected.contains("R2"))
+}

@@ -71,5 +71,69 @@
       }
     ],
     "pad_differences": []
+  },
+  "hole-solid.gbr": {
+    "exit_code": 2,
+    "status": "indeterminate",
+    "differences": [],
+    "pad_status": "incomplete",
+    "pad_evidence": [
+      {
+        "ref": "D1",
+        "side": "top",
+        "evidence": {
+          "status": "copper_only"
+        }
+      }
+    ],
+    "pad_differences": []
+  },
+  "hole-standard.gbr": {
+    "exit_code": 2,
+    "status": "indeterminate",
+    "differences": [],
+    "pad_status": "incomplete",
+    "pad_evidence": [
+      {
+        "ref": "D1",
+        "side": "top",
+        "evidence": {
+          "status": "unverified"
+        }
+      }
+    ],
+    "pad_differences": []
+  },
+  "hole-macro.gbr": {
+    "exit_code": 2,
+    "status": "indeterminate",
+    "differences": [],
+    "pad_status": "incomplete",
+    "pad_evidence": [
+      {
+        "ref": "D1",
+        "side": "top",
+        "evidence": {
+          "status": "unverified"
+        }
+      }
+    ],
+    "pad_differences": []
+  },
+  "hole-macro-underlay.gbr": {
+    "exit_code": 2,
+    "status": "indeterminate",
+    "differences": [],
+    "pad_status": "incomplete",
+    "pad_evidence": [
+      {
+        "ref": "D1",
+        "side": "top",
+        "evidence": {
+          "status": "copper_only"
+        }
+      }
+    ],
+    "pad_differences": []
   }
 }

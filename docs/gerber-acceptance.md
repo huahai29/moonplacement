@@ -15,8 +15,8 @@
 | `G04` | 已实现 | 单测「trailing zero omission」内含疑似指令的注释 | 注释正文不改变绘图状态 |
 | `MO` | 已实现 | 单测「inch units scale」 | 缺失或不支持的单位报输入错误 |
 | `FS` | 已实现 | CLI「normalizes supported Gerber coordinates」 | 增量、不匹配的轴位宽和超宽坐标报输入错误 |
-| `AD` | 部分处理 | 单测「parses flashes」「unsupported aperture template」 | 无孔标准光圈和已支持的宏。孔和不支持的模板报输入错误 |
-| `AM` | 部分处理 | MoonBit 单测「multi-primitive rounded aperture」、KiCad U3 实导出、CLI 拒收回归 | 支持单个实心圆（1）、中心线矩形（21）、KiCad 的圆角轮廓组合（4、1、20）及数值表达式。其他图元组合和清除图元报输入错误 |
+| `AD` | 部分处理 | 单测「standard apertures subtract a concentric round hole」、D1 圆孔对照 | 标准 `C/R/O/P` 支持实心和同心圆孔。零直径孔、碰到外边界的孔，以及仍不支持的模板报输入错误 |
+| `AM` | 部分处理 | MoonBit 单测「off-center clearance」、D1 圆孔对照、KiCad U3 实导出 | 支持单个实心圆（1）或中心线矩形（21）内开一个圆孔、KiCad 的圆角轮廓组合（4、1、20）及数值表达式。跨边界切除、多个清除图元或其他组合报输入错误 |
 | `Dnn` | 已实现 | 单测「parses flashes」在两种光圈间切换 | 使用未定义光圈绘图时报输入错误 |
 | `D01` | 部分处理 | 单测「regions become filled polygons」、CLI 圆弧回归 | 直线保留图形。圆弧使用保守包围。非法光圈或缺失起点报输入错误 |
 | `D02` | 已实现 | 单测「trailing zero omission」 | 未建立当前位置时须提供两轴坐标 |
@@ -63,3 +63,16 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 | [同宏通过对照](../examples/gerber/macro-transformed-pass.gbr) | 闪光点调整到 `(24, 15) mm`，几何中心回到 `(24, 13) mm` | 退出码 0，`pass` |
 
 [实测 JSON 摘录](../examples/gerber/results.json)保留退出码、状态、D1 的证据与偏差。回归用例断言三组结果与位号归属，另测几何拒收、普通圆弧和局部清除语义。[CLI 回归](../tests/cli.test.mjs)
+
+### 透明圆孔对照
+
+四份文件在同一位置放置 2 × 2 mm 的外形，其中三份开直径 1 mm 的孔。D1 的核对点位于中心，刻意省略 D1 的 X2 位号，让报告只比较实际铜证据。复用上方 CLI 命令，替换最后一个文件路径即可。
+
+| 输入 | D1 的证据 |
+| --- | --- |
+| [无孔对照](../examples/gerber/hole-solid.gbr) | `copper_only`，该点有铜 |
+| [标准光圈圆孔](../examples/gerber/hole-standard.gbr) | `unverified`，该点落入空孔 |
+| [宏内清除开孔](../examples/gerber/hole-macro.gbr) | `unverified`，该点落入空孔 |
+| [宏孔下方已有铜](../examples/gerber/hole-macro-underlay.gbr) | `copper_only`，孔下先绘制的铜仍可见 |
+
+四种情况均因 D1 无法归属而退出 2，其余四颗照常按位号核验。见[实测 JSON 摘录](../examples/gerber/results.json)。面积和几何中心从外形中扣除圆孔，单测也检查了偏心孔经镜像、旋转和缩放后的结果。透明孔及宏内清除的定义见 [Ucamco 规范 §4.4.6、§4.5.2](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf)。

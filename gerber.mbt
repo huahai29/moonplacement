@@ -260,31 +260,7 @@ fn parse_aperture(
     )
     return
   }
-  let shape = match (template, params) {
-    ("C", [diameter]) if diameter >= 0.0 => Circle(diameter * scale * 0.5)
-    ("R", [width, height]) if width >= 0.0 && height >= 0.0 =>
-      Rectangle(width * scale, height * scale)
-    ("O", [width, height]) if width >= 0.0 && height >= 0.0 =>
-      Obround(width * scale, height * scale)
-    ("P", [diameter, sides, .. angles]) if diameter >= 0.0 &&
-      sides >= 3.0 &&
-      sides <= 12.0 &&
-      sides == sides.to_int().to_double() &&
-      angles.length() <= 1 => {
-      let polygon = Polygon(diameter * scale * 0.5, sides.to_int())
-      transform_shape(polygon, aperture_rotation(angles.get(0).unwrap_or(0.0)))
-    }
-    _ =>
-      raise InvalidGerber(
-        source,
-        "暂不支持的光圈模板、孔或参数：\{template}",
-      )
-  }
-  state.apertures[code] = {
-    shape,
-    offset: { x: 0.0, y: 0.0, },
-    can_draw: template == "C",
-  }
+  state.apertures[code] = standard_aperture(template, params, scale, source)
 }
 
 ///|

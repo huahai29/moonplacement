@@ -55,6 +55,133 @@ fn aperture_rotation(angle : Double) -> Transform2D {
 }
 
 ///|
+fn aperture_origin() -> Point {
+  { x: 0.0, y: 0.0, }
+}
+
+///|
+/// Distance from an interior point to the nearest outer edge, in local
+/// coordinates. Negative values are outside the aperture.
+fn hole_clearance(shape : Shape, hole : Point) -> Double {
+  match shape {
+    Circle(radius) => radius - @math.hypot(hole.x, hole.y)
+    Rectangle(width, height) =>
+      (width * 0.5 - hole.x.abs()).min(height * 0.5 - hole.y.abs())
+    Obround(width, height) => {
+      let (along, across) = if width >= height {
+        (hole.x, hole.y)
+      } else {
+        (hole.y, hole.x)
+      }
+      let straight = (width - height).abs() * 0.5
+      width.min(height) * 0.5 -
+      @math.hypot((along.abs() - straight).max(0.0), across)
+    }
+    // Standard polygon holes are concentric.
+    Polygon(radius, sides) => radius * @math.cos(@math.PI / sides.to_double())
+    _ => 0.0
+  }
+}
+
+///|
+fn subtract_round_hole(
+  shape : Shape,
+  hole : Point,
+  radius : Double,
+  source : String,
+  template : String,
+) -> (Shape, Point) raise GerberError {
+  let clearance = hole_clearance(shape, hole)
+  let hole_area = @math.PI * radius * radius
+  let copper_area = shape.area() - hole_area
+  if !(radius > 0.0 &&
+    radius < clearance &&
+    hole_area > 0.0 &&
+    copper_area > 0.0) ||
+    copper_area.is_inf() {
+    raise InvalidGerber(
+      source,
+      "圆孔必须有正直径且完全位于光圈内部：\{template}",
+    )
+  }
+  let ratio = hole_area / copper_area
+  let center : Point = { x: -hole.x * ratio, y: -hole.y * ratio, }
+  let relative_hole : Point = { x: hole.x - center.x, y: hole.y - center.y, }
+  if relative_hole.x.is_nan() ||
+    relative_hole.x.is_inf() ||
+    relative_hole.y.is_nan() ||
+    relative_hole.y.is_inf() {
+    raise InvalidGerber(
+      source,
+      "带孔光圈中心超出可计算范围：\{template}",
+    )
+  }
+  (
+    RoundHole(shape, { x: -center.x, y: -center.y, }, relative_hole, radius),
+    center,
+  )
+}
+
+///|
+fn standard_aperture(
+  template : String,
+  params : Array[Double],
+  unit : Double,
+  source : String,
+) -> Aperture raise GerberError {
+  let (shape, angle, hole) = match (template, params) {
+    ("C", [diameter, .. tail]) if diameter >= 0.0 && tail.length() <= 1 =>
+      (Circle(diameter * unit * 0.5), 0.0, tail.get(0))
+    ("R" | "O", [width, height, .. tail]) if width >= 0.0 &&
+      height >= 0.0 &&
+      tail.length() <= 1 => {
+      let x = width * unit
+      let y = height * unit
+      (
+        if template == "R" {
+          Rectangle(x, y)
+        } else {
+          Obround(x, y)
+        },
+        0.0,
+        tail.get(0),
+      )
+    }
+    ("P", [diameter, sides, .. tail]) if diameter >= 0.0 &&
+      sides >= 3.0 &&
+      sides <= 12.0 &&
+      sides == sides.to_int().to_double() &&
+      tail.length() <= 2 =>
+      (
+        Polygon(diameter * unit * 0.5, sides.to_int()),
+        tail.get(0).unwrap_or(0.0),
+        tail.get(1),
+      )
+    _ =>
+      raise InvalidGerber(
+        source,
+        "暂不支持的光圈模板或参数：\{template}",
+      )
+  }
+  let shape = match hole {
+    Some(diameter) =>
+      subtract_round_hole(
+        shape,
+        aperture_origin(),
+        diameter * unit * 0.5,
+        source,
+        template,
+      ).0
+    None => shape
+  }
+  {
+    shape: transform_shape(shape, aperture_rotation(angle)),
+    offset: aperture_origin(),
+    can_draw: template == "C" && hole is None,
+  }
+}
+
+///|
 fn macro_aperture(
   name : String,
   body : Array[String],
@@ -87,8 +214,10 @@ fn macro_aperture(
     }
     primitives.push(values)
   }
-  if primitives.length() > 1 {
-    return rounded_macro(name, primitives, unit, source)
+  match primitives {
+    [_, [1.0, 0.0, ..]] => ()
+    [_, _, ..] => return rounded_macro(name, primitives, unit, source)
+    _ => ()
   }
   let (shape, offset, angle) = match primitives.get(0) {
     Some([1.0, exposure, diameter, x, y, .. trailing]) if trailing.length() <= 1 => {
@@ -129,6 +258,34 @@ fn macro_aperture(
       )
   }
   let rotation = aperture_rotation(angle)
+  if primitives.get(1) is Some([1.0, 0.0, diameter, x, y, .. trailing]) &&
+    trailing.length() <= 1 {
+    let clear = aperture_rotation(trailing.get(0).unwrap_or(0.0)).apply({
+      x: x * unit,
+      y: y * unit,
+    })
+    let solid = rotation.apply(offset)
+    let hole = aperture_rotation(-angle).apply({
+      x: clear.x - solid.x,
+      y: clear.y - solid.y,
+    })
+    let (punched, shift) = subtract_round_hole(
+      shape,
+      hole,
+      diameter * unit * 0.5,
+      source,
+      name,
+    )
+    let shift = rotation.apply(shift)
+    return {
+      shape: transform_shape(punched, rotation),
+      offset: { x: solid.x + shift.x, y: solid.y + shift.y, },
+      can_draw: false,
+    }
+  }
+  if primitives.length() == 2 {
+    raise InvalidGerber(source, "圆形清除图元的参数无效：\{name}")
+  }
   {
     shape: transform_shape(shape, rotation),
     offset: rotation.apply(offset),
