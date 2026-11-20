@@ -16,7 +16,7 @@
 | `MO` | 已实现 | 单测「inch units scale」 | 缺失或不支持的单位报输入错误 |
 | `FS` | 已实现 | CLI「normalizes supported Gerber coordinates」 | 增量、不匹配的轴位宽和超宽坐标报输入错误 |
 | `AD` | 部分处理 | 单测「parses flashes」「unsupported aperture template」 | 无孔标准光圈和已支持的宏。孔和不支持的模板报输入错误 |
-| `AM` | 部分处理 | CLI「evaluates flash scaling」「rejects Gerber commands」 | 限单个实心圆（1）或中心线矩形（21），支持数值和直接变量。组合圆角矩形、多图元、清除图元、其他图元和表达式待支持，超出范围报输入错误 |
+| `AM` | 部分处理 | MoonBit 单测「multi-primitive rounded aperture」、KiCad U3 实导出、CLI 拒收回归 | 支持单个实心圆（1）、中心线矩形（21）、KiCad 的圆角轮廓组合（4、1、20）及数值表达式。其他图元组合和清除图元报输入错误 |
 | `Dnn` | 已实现 | 单测「parses flashes」在两种光圈间切换 | 使用未定义光圈绘图时报输入错误 |
 | `D01` | 部分处理 | 单测「regions become filled polygons」、CLI 圆弧回归 | 直线保留图形。圆弧使用保守包围。非法光圈或缺失起点报输入错误 |
 | `D02` | 已实现 | 单测「trailing zero omission」 | 未建立当前位置时须提供两轴坐标 |
@@ -47,7 +47,7 @@
 
 ## 输入、命令和实测输出
 
-三组用例沿用同一份设计表、送厂表和配置，只更换顶层铜层。也可先复跑 [KiCad 双面实导出案例](../examples/README.md#铜层实导出验证)，查看 C7 在两张表同时偏移时如何由铜层检出。
+三组用例沿用同一份设计表、送厂表和配置，只更换顶层铜层。也可先复跑 [KiCad 双面实导出案例](../examples/README.md#铜层实导出验证)，查看顶面 U3 倾斜的圆角焊盘，以及 C7 在两张表同时偏移时如何由铜层检出。U3 的通过条件是实导出中确有 `RoundRect` 定义和调用，报告按 U3 位号找到一块铜且中心偏差小于 0.001 mm。MoonBit 单测另用可独立计算的几何对照验证合成面积、铜形几何中心、外部变换和圆角边界。
 
 ```sh
 moon build --target js

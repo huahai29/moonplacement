@@ -41,26 +41,6 @@ fn aperture_fields(text : String, separator : Char) -> Array[String] {
 }
 
 ///|
-fn macro_value(
-  text : String,
-  params : Array[Double],
-  source : String,
-) -> Double raise GerberError {
-  let chars = to_chars(text)
-  if chars.get(0) is Some('$') {
-    let index = parse_code(
-      { letter: '$', value: chars_to_string(chars, 1), },
-      source,
-    )
-    if index < 1 {
-      raise InvalidGerber(source, "光圈宏变量必须从 $1 开始")
-    }
-    return params.get(index - 1).unwrap_or(0.0)
-  }
-  aperture_number(text, source)
-}
-
-///|
 fn transform_shape(shape : Shape, matrix : Transform2D) -> Shape {
   if matrix.a == 1.0 && matrix.b == 0.0 && matrix.d == 0.0 && matrix.e == 1.0 {
     shape
@@ -82,57 +62,65 @@ fn macro_aperture(
   unit : Double,
   source : String,
 ) -> Aperture raise GerberError {
-  let mut primitive : Array[String]? = None
+  let variables : Map[Int32, Double] = Map([])
+  for i, value in params {
+    variables[i + 1] = value
+  }
+  let primitives : Array[Array[Double]] = []
   for statement in body {
     if statement.is_empty() || statement.has_prefix("0") {
       continue
     }
-    if primitive is Some(_) {
-      raise InvalidGerber(source, "暂不支持多图元光圈宏：\{name}")
+    if statement.has_prefix("$") {
+      macro_assign(statement, variables, source)
+      continue
     }
-    primitive = Some(aperture_fields(statement, ','))
+    let values = []
+    for i, field in aperture_fields(statement, ',') {
+      if i == 0 {
+        values.push(
+          parse_code({ letter: 'A', value: field, }, source).to_double(),
+        )
+        continue
+      }
+      values.push(macro_value(field, variables, source))
+    }
+    primitives.push(values)
   }
-  let (shape, offset, angle) = match primitive {
-    Some(["1", exposure, diameter, x, y, .. trailing]) if trailing.length() <= 1 => {
-      if macro_value(exposure, params, source) != 1.0 {
+  if primitives.length() > 1 {
+    return rounded_macro(name, primitives, unit, source)
+  }
+  let (shape, offset, angle) = match primitives.get(0) {
+    Some([1.0, exposure, diameter, x, y, .. trailing]) if trailing.length() <= 1 => {
+      if exposure != 1.0 {
         raise InvalidGerber(
           source,
           "暂不支持清除图元光圈宏：\{name}",
         )
       }
-      let radius = macro_value(diameter, params, source) * unit * 0.5
+      let radius = diameter * unit * 0.5
       if radius < 0.0 {
         raise InvalidGerber(source, "光圈直径不能为负数：\{name}")
       }
       (
         Circle(radius),
-        {
-          x: macro_value(x, params, source) * unit,
-          y: macro_value(y, params, source) * unit,
-        },
-        macro_value(trailing.get(0).unwrap_or("0"), params, source),
+        { x: x * unit, y: y * unit, },
+        trailing.get(0).unwrap_or(0.0),
       )
     }
-    Some(["21", exposure, width, height, x, y, angle]) => {
-      if macro_value(exposure, params, source) != 1.0 {
+    Some([21.0, exposure, width, height, x, y, angle]) => {
+      if exposure != 1.0 {
         raise InvalidGerber(
           source,
           "暂不支持清除图元光圈宏：\{name}",
         )
       }
-      let width = macro_value(width, params, source) * unit
-      let height = macro_value(height, params, source) * unit
+      let width = width * unit
+      let height = height * unit
       if width < 0.0 || height < 0.0 {
         raise InvalidGerber(source, "光圈尺寸不能为负数：\{name}")
       }
-      (
-        Rectangle(width, height),
-        {
-          x: macro_value(x, params, source) * unit,
-          y: macro_value(y, params, source) * unit,
-        },
-        macro_value(angle, params, source),
-      )
+      (Rectangle(width, height), { x: x * unit, y: y * unit, }, angle)
     }
     _ =>
       raise InvalidGerber(

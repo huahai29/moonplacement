@@ -15,6 +15,8 @@ pub enum Shape {
   Polygon(Double, Int32)
   /// A centered aperture under a rotation, reflection, or uniform scale.
   Transformed(Shape, Transform2D)
+  /// Convex outline relative to the copper centroid and its rounding radius.
+  RoundedOutline(Array[Point], Double)
 }
 
 ///|
@@ -31,6 +33,7 @@ pub fn Shape::area(self : Shape) -> Double {
       let count = sides.to_double()
       0.5 * count * radius * radius * @math.sin(2.0 * @math.PI / count)
     }
+    RoundedOutline(vertices, radius) => rounded_outline_area(vertices, radius)
     Transformed(shape, matrix) => shape.area() * matrix.determinant().abs()
   }
 }
@@ -42,6 +45,13 @@ fn Shape::bounding_radius(self : Shape) -> Double {
     Circle(radius) | Polygon(radius, _) => radius
     Rectangle(width, height) => @math.hypot(width * 0.5, height * 0.5)
     Obround(width, height) => width.max(height) * 0.5
+    RoundedOutline(vertices, radius) => {
+      let mut result = 0.0
+      for p in vertices {
+        result = result.max(@math.hypot(p.x, p.y))
+      }
+      result + radius
+    }
     Transformed(shape, matrix) => shape.bounding_radius() * matrix.scale()
   }
 }
@@ -165,6 +175,8 @@ pub fn Shape::expanded(self : Shape, amount : Double) -> Shape {
     Obround(width, height) =>
       Obround(width + 2.0 * amount, height + 2.0 * amount)
     Polygon(radius, sides) => Polygon(radius + amount, sides)
+    RoundedOutline(vertices, radius) =>
+      RoundedOutline(vertices, radius + amount)
     Transformed(shape, matrix) =>
       Transformed(shape.expanded(amount / matrix.scale()), matrix)
   }
@@ -185,6 +197,8 @@ pub fn Shape::contains(self : Shape, center : Point, point : Point) -> Bool {
       let moved = vertices.map(v => { x: v.x - dx, y: v.y - dy, })
       convex_contains(moved, { x: 0.0, y: 0.0, })
     }
+    RoundedOutline(vertices, radius) =>
+      rounded_outline_contains(vertices, radius, { x: dx, y: dy, })
     Transformed(shape, matrix) => {
       let determinant = matrix.determinant()
       if determinant == 0.0 {
@@ -256,4 +270,43 @@ pub fn polygon_contains(points : Array[Point], point : Point) -> Bool {
     j = i
   }
   inside
+}
+
+///|
+fn rounded_outline_area(vertices : Array[Point], radius : Double) -> Double {
+  let mut perimeter = 0.0
+  for i, a in vertices {
+    let b = vertices[(i + 1) % vertices.length()]
+    perimeter += @math.hypot(b.x - a.x, b.y - a.y)
+  }
+  polygon_area(vertices).abs() + perimeter * radius + @math.PI * radius * radius
+}
+
+///|
+fn rounded_outline_contains(
+  vertices : Array[Point],
+  radius : Double,
+  point : Point,
+) -> Bool {
+  if convex_contains(vertices, point) {
+    return true
+  }
+  for i, a in vertices {
+    let b = vertices[(i + 1) % vertices.length()]
+    let dx = b.x - a.x
+    let dy = b.y - a.y
+    let length = @math.hypot(dx, dy)
+    if length == 0.0 {
+      continue
+    }
+    let ux = dx / length
+    let uy = dy / length
+    let px = point.x - a.x
+    let py = point.y - a.y
+    let along = (px * ux + py * uy).max(0.0).min(length)
+    if @math.hypot(px - along * ux, py - along * uy) <= radius {
+      return true
+    }
+  }
+  false
 }

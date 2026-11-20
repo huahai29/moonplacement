@@ -31,7 +31,10 @@ function findLayer(side) {
 
 const top = findLayer('Top');
 const bottom = findLayer('Bot');
-assert.match(readFileSync(top, 'utf8'), /%TO\.P,U3,1(?:,|\*)/);
+const topText = readFileSync(top, 'utf8');
+assert.match(topText, /%AMRoundRect\*/);
+assert.match(topText, /%ADD\d+RoundRect,/);
+assert.match(topText, /%TO\.P,U3,1(?:,|\*)/);
 assert.match(readFileSync(bottom, 'utf8'), /%TO\.P,C7,2(?:,|\*)/);
 
 function exportPosition(file, unit, flags = []) {
@@ -89,6 +92,9 @@ for (const mirror of ['direct', 'negated']) {
   assert.equal(report.pad_checked, 6);
   assert.ok(report.pad_evidence.every(({ evidence }) => evidence.within_tolerance));
   assert.equal(report.pad_evidence.find(({ ref }) => ref === 'C7').evidence.pad_count, 2);
+  const rounded = report.pad_evidence.find(({ ref }) => ref === 'U3').evidence;
+  assert.equal(rounded.pad_count, 1);
+  assert.ok(rounded.distance_mm < 0.001);
   if (mirror === 'negated') negatedDelivery = delivery;
 }
 

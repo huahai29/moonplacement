@@ -133,3 +133,68 @@ test "macro rotation, external reflection, and reset transform the aperture arou
   assert_eq(circle.center.x, 10.0)
   assert_eq(circle.center.y, 10.0)
 }
+
+///|
+fn rounded_macro_fixture(
+  circle~ : String = "1,1,$10,1,1",
+  outline~ : String = "4,1,4,1,1,3,1,3,2,1,2,1,1,0",
+) -> String {
+  "%FSLAX46Y46*%%MOMM*%%AMRounded*$10=($1+2x$2)/2*" +
+  outline +
+  "*" +
+  circle +
+  "*1,1,$10,3,1*1,1,$10,3,2*1,1,$10,1,2*" +
+  "20,1,$10,1,1,3,1,0*20,1,$10,3,1,3,2,0*" +
+  "20,1,$10,3,2,1,2,0*20,1,$10,1,2,1,1,0*%" +
+  "%ADD10Rounded,0.4X0.3*%D10*%LMX*%%LR90*%%LS2*%" +
+  "%TO.P,U3,1*%X10000000Y10000000D03*M02*"
+}
+
+///|
+test "multi-primitive rounded aperture uses union area and transformed copper center" {
+  let document = parse_gerber(rounded_macro_fixture(), source="rounded")
+  guard! gerber_pads(document) is [pad]
+  assert_eq(pad.refdes, Some("U3"))
+  assert_true((pad.center.x - 7.0).abs() < 1.0e-12)
+  assert_true((pad.center.y - 6.0).abs() < 1.0e-12)
+  // Transformed inner rectangle 2 by 4, plus radius-0.5 rounding.
+  assert_true((pad.area - (14.0 + @math.PI * 0.25)).abs() < 1.0e-12)
+  assert_true(pad.shape.contains(pad.center, { x: 5.65, y: 3.65, }))
+  let cut_corner : Point = { x: 5.55, y: 3.55, }
+  assert_false(pad.shape.contains(pad.center, cut_corner))
+  assert_true(pad.shape.expanded(0.15).contains(pad.center, cut_corner))
+}
+
+///|
+test "malformed macro expressions and unrecognized combinations are refused" {
+  for
+    (input, message) in [
+      (rounded_macro_fixture(circle="1,0,$10,1,1"), "多图元光圈宏"),
+      (rounded_macro_fixture(circle="1,1,$10,3,1"), "多图元光圈宏"),
+      (rounded_macro_fixture(circle="1,1,$10/0,1,1"), "除数不能为零"),
+      (rounded_macro_fixture(circle="1,1,($10,1,1"), "缺少右括号"),
+      (
+        rounded_macro_fixture(outline="4,1,4,1,1,3,1,3,2,1,2,0,1,0"),
+        "多图元光圈宏",
+      ),
+    ] {
+    let result = Ok(parse_gerber(input, source="rounded")) catch {
+      error => Err(error)
+    }
+    guard! result is Err(InvalidGerber("rounded", detail))
+    assert_true(detail.contains(message))
+  }
+}
+
+///|
+test "macro expressions respect precedence, assignments and undefined variable defaults" {
+  let variables : Map[Int32, Double] = Map([(1, 8.0)])
+  macro_assign("$2=-($1+2)/2+3x2", variables, "test")
+  assert_eq(macro_value("$2+$3", variables, "test"), 1.0)
+  assert_eq(macro_value("$1/2/2", variables, "test"), 2.0)
+  let result = Ok(macro_assign("$1=0", variables, "test")) catch {
+    error => Err(error)
+  }
+  guard! result is Err(InvalidGerber("test", message))
+  assert_true(message.contains("不能重新定义变量"))
+}
