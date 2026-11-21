@@ -218,6 +218,16 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
   html.write_string("<h2>器件差异</h2>")
   html.write_string(differences_table(differences))
   html.write_string("<h2>铜层核对</h2>")
+  for cell in json_array(report, "panel_cells") {
+    let side = if json_string(cell, "side") == "top" {
+      "顶面"
+    } else {
+      "底面"
+    }
+    html.write_string(
+      "<p>\{side}拼板单元：第 \{json_int(cell, "row")} 行，第 \{json_int(cell, "column")} 列。</p>",
+    )
+  }
   html.write_string(
     "<p>\{pad_state}：按位号核验 \{json_int(report, "pad_checked")} / \{pad_evidence.length()}。</p>",
   )

@@ -79,31 +79,83 @@ fn load_gerber(
 
 ///|
 fn usage() -> String {
-  "用法：moon run cmd/main --target js -- <基准.csv> <送厂.csv> <配置.json> [顶层.gbr] [底层.gbr] [--html 报告.html]"
+  "用法：moon run cmd/main --target js -- <基准.csv> <送厂.csv> <配置.json> [顶层.gbr] [底层.gbr] [--panel-cell 行,列] [--html 报告.html]"
 }
 
 ///|
 priv struct CliArgs {
   positional : Array[String]
   html : String?
+  cell : (Int32, Int32)?
 }
 
 ///|
-fn parse_args() -> CliArgs {
+fn cell_index(value : String) -> Int32 raise @placement.InputError {
+  let mut n = 0
+  if value.is_empty() || value.length() > 5 {
+    raise @placement.InvalidInput(
+      "panel_cell", "单元格式应为正整数行,列，例如 2,1",
+    )
+  }
+  for _, ch in value.iter2() {
+    if ch < '0' || ch > '9' {
+      raise @placement.InvalidInput(
+        "panel_cell", "单元格式应为正整数行,列，例如 2,1",
+      )
+    }
+    n = n * 10 + ch.to_int() - 48
+  }
+  if n == 0 {
+    raise @placement.InvalidInput("panel_cell", "拼板行列从 1 开始")
+  }
+  n
+}
+
+///|
+fn parse_args() -> CliArgs raise @placement.InputError {
   let positional : Array[String] = []
   let mut html : String? = None
+  let mut cell = None
   let mut index = 0
   while index < arg_count() {
     let value = arg(index)
     if value == "--html" && index + 1 < arg_count() {
       html = Some(arg(index + 1))
       index += 2
+    } else if value == "--panel-cell" {
+      if cell is Some(_) || index + 1 >= arg_count() {
+        raise @placement.InvalidInput(
+          "panel_cell", "--panel-cell 需要且只能提供一次行,列",
+        )
+      }
+      guard arg(index + 1).split(",").map(part => part.to_owned()).collect()
+        is [row, column] else {
+        raise @placement.InvalidInput(
+          "panel_cell", "单元格式应为行,列，例如 2,1",
+        )
+      }
+      cell = Some((cell_index(row), cell_index(column)))
+      index += 2
     } else {
       positional.push(value)
       index += 1
     }
   }
-  { positional, html, }
+  { positional, html, cell, }
+}
+
+///|
+fn load_layer(
+  path : String,
+  cell : (Int32, Int32)?,
+  reference~ : @placement.GerberDocument? = None,
+) -> @placement.GerberDocument raise @placement.InputError {
+  let document = load_gerber(path)
+  guard cell is Some((row, column)) else { return document }
+  @placement.select_panel_cell(document, row~, column~, source=path, reference?) catch {
+    @placement.InvalidGerber(field, message) =>
+      raise @placement.InvalidInput(field, message)
+  }
 }
 
 ///|
@@ -119,6 +171,11 @@ fn run() -> Int32 raise @placement.InputError {
     positional.length() != 5 {
     raise @placement.InvalidInput("arguments", usage())
   }
+  if args.cell is Some(_) && positional.length() < 4 {
+    raise @placement.InvalidInput(
+      "panel_cell", "--panel-cell 需要提供 Gerber 铜层",
+    )
+  }
   let policy = @placement.read_policy(load_file(positional[2], 65_536))
   let baseline = @placement.read_placements(
     load_file(positional[0], 8_388_608),
@@ -129,12 +186,12 @@ fn run() -> Int32 raise @placement.InputError {
     source=positional[1],
   )
   let top = if positional.length() >= 4 {
-    Some(load_gerber(positional[3]))
+    Some(load_layer(positional[3], args.cell))
   } else {
     None
   }
   let bottom = if positional.length() >= 5 {
-    Some(load_gerber(positional[4]))
+    Some(load_layer(positional[4], args.cell, reference=top))
   } else {
     None
   }

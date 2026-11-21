@@ -50,6 +50,17 @@ node tests/kicad-export.mjs
 | 只有送厂表的 C7 偏移 0.30 mm | `different`，两表位置和铜层均指出底面 C7 |
 | 两份表的 C7 同时偏移 0.30 mm | 仅查两表为 `pass`，加入原铜层后为 `different`，唯一差异是 C7 的 `pad_offset` |
 
+## 核对拼板单元
+
+使用第一块单元的设计和送厂坐标表。下面的样例间距是 40 mm，第 2 行第 2 列的 D1 单独向 X 正方向偏移了 0.30 mm：
+
+```sh
+moon build --target js
+node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/delivery-ok.csv examples/policy.json examples/gerber/panel-cell-2x2.gbr --panel-cell "2,2" --html _build/panel-report.html
+```
+
+预期退出码为 1，`panel_cells` 指明所选单元，`pad_differences` 只列 D1。把参数换成 `1,1`、`1,2` 或 `2,1` 均得到 `pass`。可疑布局的处理见[拼板单元规则](../docs/audit.md#拼板单元)。
+
 ## 测试命令
 
 ```sh

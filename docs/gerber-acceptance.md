@@ -100,7 +100,9 @@ KiCad 实导出同时验证圆角 U3 和带对称切角的 R2。热焊盘的环�
 
 用上方命令换入 [`panel-sr.gbr`](../examples/gerber/panel-sr.gbr)。D1 焊盘出现在 2 × 2 个单元中，报告将 D1 标为 `repeated_reference`（退出码 2），其他四颗照常核验。不会把四块焊盘取平均后报成一个偏移。[实测 JSON 摘录](../examples/gerber/results.json)
 
-按 [Gerber 2024.05 §4.12](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf#page=116) 先沿 Y 再沿 X 复制完整对象组，保留清除与绘制先后。每组最多 10000 个单元，每层累计展开最多 200000 个对象及轮廓顶点；超过限制返回输入错误。当前不自动为表格补拼板单元编号，含重复位号时请分单元输入。
+按 [Gerber 2024.05 §4.12](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf#page=116) 先沿 Y 再沿 X 复制完整对象组，保留清除与绘制先后。每组最多 10000 个单元，每层累计展开最多 200000 个对象及轮廓顶点；超过限制返回输入错误。
+
+[2×2 单元验收](../examples/README.md#核对拼板单元)用 `--panel-cell` 逐块核对。三块正常单元通过，第 2 行第 2 列报告 D1 偏移约 0.30 mm。该位号的四块焊盘单独写出，只移动最后一块；其余器件由 `SR` 生成。回归另检查重叠、跨界、不一致的双面网格，以及后绘制的清除对象。
 
 ### 块光圈与独立对照
 

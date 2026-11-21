@@ -98,6 +98,58 @@ test('panel repeats do not average duplicated references into a phantom pad offs
   assert.match(readFileSync(html, 'utf8'), /D1（顶面）：拼板中位号重复，请按单元拆分后核验/);
 });
 
+test('selects each cell of a 2x2 panel and identifies only the shifted D1', t => {
+  const work = mkdtempSync(join(tmpdir(), 'moonplacement-cell-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const panel = join(gerberExamples, 'panel-cell-2x2.gbr');
+  const html = join(work, 'cell.html');
+  for (const row of [1, 2]) {
+    for (const column of [1, 2]) {
+      const shifted = row === 2 && column === 2;
+      const report = run([baseline, delivery, policy, panel, '--panel-cell', `${row},${column}`, '--html', html],
+        shifted ? 1 : 0);
+      assert.equal(report.pad_checked, 5);
+      assert.equal(report.pad_status, 'complete');
+      assert.deepEqual(report.differences, []);
+      assert.deepEqual(report.panel_cells, [{ side: 'top', row, column, rows: 2, columns: 2,
+        offset_x_mm: (column - 1) * 40, offset_y_mm: (row - 1) * 40 }]);
+      const expected = shifted ? [['D1', 'pad_offset']] : [];
+      assert.deepEqual(report.pad_differences.map(({ ref, kind }) => [ref, kind]), expected);
+      if (shifted) assert.ok(Math.abs(report.pad_differences[0].distance_mm - 0.30) < 0.0001);
+      assert.match(readFileSync(html, 'utf8'), new RegExp(`顶面拼板单元：第 ${row} 行，第 ${column} 列`));
+    }
+  }
+});
+
+test('panel cell selection rejects invalid indexes, missing grids and crossing geometry', t => {
+  const work = mkdtempSync(join(tmpdir(), 'moonplacement-bad-panel-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const panel = join(gerberExamples, 'panel-cell-2x2.gbr');
+  const original = readFileSync(panel, 'utf8');
+  const scratch = join(work, 'bad.gbr');
+  for (const [args, message] of [
+    [[panel, '--panel-cell', '3,1'], /超出范围/],
+    [[panel, '--panel-cell', '0,1'], /从 1 开始/],
+    [[panel, '--panel-cell', '1,2,3'], /行,列/],
+    [[panel, '--panel-cell', '1,2', '--panel-cell', '1,1'], /只能提供一次/],
+    [[panel, '--panel-cell'], /只能提供一次/],
+    [['--panel-cell', '1,2'], /需要提供 Gerber/],
+    [['examples/top-copper.gbr', '--panel-cell', '1,1'], /恰好有一组/],
+  ]) {
+    assert.match(run([baseline, delivery, policy, ...args], 64).message, message);
+  }
+  for (const [edited, message] of [
+    [original.replace('I40J40', 'I20J40'), /重叠、相切/],
+    [original.replace('M02*', 'D10*X40000000Y13000000D03*M02*'), /跨越拼板单元边界/],
+  ]) {
+    writeFileSync(scratch, edited);
+    assert.match(run([baseline, delivery, policy, scratch, '--panel-cell', '1,1'], 64).message, message);
+  }
+  writeFileSync(scratch, original.replace('I40J40', 'I41J40'));
+  assert.match(run([baseline, delivery, policy, panel, scratch, '--panel-cell', '1,1'], 64).message,
+    /顶层与底层 SR 网格/);
+});
+
 test('keeps unrelated flash evidence when a layer has arcs or clear objects', t => {
   const work = mkdtempSync(join(tmpdir(), 'moonplacement-clearance-'));
   t.after(() => rmSync(work, { recursive: true, force: true }));

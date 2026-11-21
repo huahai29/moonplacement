@@ -24,6 +24,7 @@ pub struct GerberFeature {
   kind : GerberKind
   dark : Bool
   refdes : String?
+  block_instance : Int32?
 }
 
 ///|
@@ -34,6 +35,8 @@ pub struct GerberDocument {
   warnings : Array[String]
   /// Normalized references that appear in multiple panel copies.
   repeated_refs : Map[String, Bool]
+  panel_grids : Array[GerberGrid]
+  panel_cell : PanelCell?
 }
 
 ///|
@@ -75,10 +78,12 @@ priv struct GerberState {
   warnings : Array[String]
   mut repeat : GerberRepeat?
   mut repeat_budget : Int32
+  panel_grids : Array[GerberGrid]
   blocks : Map[Int32, Array[GerberFeature]]
   block_stack : Array[GerberBlock]
   mut block_budget : Int32
   block_seen_refs : Map[String, Bool]
+  mut block_instances : Int32
   repeated_refs : Map[String, Bool]
 }
 
@@ -462,6 +467,7 @@ fn flush_region(state : GerberState, source : String) -> Unit raise GerberError 
       kind: Region({ contours, bounds, }),
       dark: state.dark,
       refdes: feature_refdes(state),
+      block_instance: None,
     },
     source,
   )
@@ -631,6 +637,7 @@ fn process_operation(
             },
             dark: state.dark,
             refdes: feature_refdes(state),
+            block_instance: None,
           },
           source,
         )
@@ -671,6 +678,7 @@ fn process_operation(
           kind: Flash(shape, center),
           dark: state.dark,
           refdes: feature_refdes(state),
+          block_instance: None,
         },
         source,
       )
@@ -820,10 +828,12 @@ pub fn parse_gerber(
     warnings: [],
     repeat: None,
     repeat_budget: 200000,
+    panel_grids: [],
     blocks: Map([]),
     block_stack: [],
     block_budget: 200000,
     block_seen_refs: Map([]),
+    block_instances: 0,
     repeated_refs: Map([]),
   }
   for statement in split_statements(text, source) {
@@ -847,13 +857,13 @@ pub fn parse_gerber(
     )
   }
   if !state.repeated_refs.is_empty() {
-    state.warnings.push(
-      "SR 拼板中有重复位号，需按单元拆分后才能核验这些器件",
-    )
+    state.warnings.push(repeated_reference_warning)
   }
   {
     features: state.features,
     warnings: state.warnings,
     repeated_refs: state.repeated_refs,
+    panel_grids: state.panel_grids,
+    panel_cell: None,
   }
 }

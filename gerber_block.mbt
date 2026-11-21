@@ -114,6 +114,12 @@ fn flash_block(
   let matrix = aperture_matrix(state)
   let seen_here : Map[String, Bool] = Map([])
   let track = state.block_stack.is_empty()
+  let instance = if track {
+    state.block_instances += 1
+    Some(state.block_instances)
+  } else {
+    None
+  }
   for item in contents {
     if track {
       state.charge_block(item, source)
@@ -144,7 +150,7 @@ fn flash_block(
       }
       seen_here[key] = true
     }
-    state.emit({ kind, dark, refdes, }, source)
+    state.emit({ kind, dark, refdes, block_instance: instance, }, source)
   }
   for key, _ in seen_here {
     state.block_seen_refs[key] = true

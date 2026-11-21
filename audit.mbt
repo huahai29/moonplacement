@@ -269,10 +269,22 @@ pub fn audit(
   let pad_results : Array[Json] = []
   let pad_warnings : Array[Json] = []
   let pad_sides : Array[Json] = []
+  let panel_cells : Array[Json] = []
   let mut pad_checked = 0
   for layer in [(Top, top_gerber), (Bottom, bottom_gerber)] {
     guard layer is (side, Some(document)) else { continue }
     pad_sides.push(Json(side_name(side)))
+    if document.panel_cell is Some(cell) {
+      panel_cells.push({
+        "side": Json(side_name(side)),
+        "row": Json(cell.row),
+        "column": Json(cell.column),
+        "rows": Json(cell.grid.rows),
+        "columns": Json(cell.grid.columns),
+        "offset_x_mm": Json(cell.offset_mm.x),
+        "offset_y_mm": Json(cell.offset_mm.y),
+      })
+    }
     for warning in document.warnings {
       pad_warnings.push({
         "side": Json(side_name(side)),
@@ -365,6 +377,7 @@ pub fn audit(
     "pad_skipped": Json(pad_skipped),
     "pad_status": Json(pad_status),
     "pad_sides": Json(pad_sides),
+    "panel_cells": Json(panel_cells),
     "pad_evidence": Json(pad_results),
     "pad_warnings": Json(pad_warnings),
     "tolerances": {

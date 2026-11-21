@@ -85,6 +85,28 @@ fn parse_repeat(
     let copies = repeat.columns * repeat.rows
     state.repeat_budget -= repeat.cost * copies
     if !repeat.features.is_empty() {
+      if copies > 1 {
+        let mut footprint : GerberBounds? = None
+        for item in repeat.features {
+          if gerber_object_bounds(item.kind) is Some(bounds) {
+            footprint = Some(
+              match footprint {
+                Some(current) => current.union(bounds)
+                None => bounds
+              },
+            )
+          }
+        }
+        if footprint is Some(footprint) {
+          state.panel_grids.push({
+            columns: repeat.columns,
+            rows: repeat.rows,
+            dx: repeat.dx,
+            dy: repeat.dy,
+            footprint,
+          })
+        }
+      }
       for x in 0..<repeat.columns {
         for y in 0..<repeat.rows {
           let offset : Point = {
