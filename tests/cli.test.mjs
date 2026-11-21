@@ -65,11 +65,24 @@ test('rejects Gerber commands whose geometry cannot be isolated', t => {
     [original.replace('1,1,$1,$2,0,0*%', '1,1,$1,$2,0,0*1,0,0.2,0,0,0*%'), /圆孔必须/],
     [original.replace('1,1,$1,$2,0,0*%', '1,1,$1,$2,0,0*1,0,0.2,0,0,0*1,1,0.1,0,0,0*%'), /多图元光圈宏/],
     [original.replace('M02*', '%SRX2Y1I1J0*%M02*'), /步进重复缺少结束/],
-    [original.replace('M02*', '%ABD20*%%AB*%M02*'), /ABD20/],
+    [original.replace('M02*', '%ABD20*%M02*'), /块光圈缺少结束/],
   ]) {
     writeFileSync(file, input);
     assert.match(run([baseline, delivery, policy, file], 64).message, message);
   }
+});
+
+test('AB inside SR agrees with manually expanded flashes and flags only duplicate ownership', () => {
+  const compact = run([baseline, delivery, policy, join(gerberExamples, 'panel-ab-sr.gbr')], 2);
+  const explicit = run([baseline, delivery, policy, join(gerberExamples, 'panel-ab-expanded.gbr')], 2);
+  assert.deepEqual(compact.pad_differences, explicit.pad_differences);
+  assert.equal(compact.pad_checked, 4);
+  assert.deepEqual(compact.pad_evidence.filter(e => e.ref !== 'D1'),
+    explicit.pad_evidence.filter(e => e.ref !== 'D1'));
+  assert.deepEqual(compact.pad_evidence.find(e => e.ref === 'D1').evidence,
+    { status: 'unverified', reason: 'repeated_reference' });
+  assert.deepEqual(explicit.pad_evidence.find(e => e.ref === 'D1').evidence,
+    { status: 'copper_only' });
 });
 
 test('panel repeats do not average duplicated references into a phantom pad offset', t => {

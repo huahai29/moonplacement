@@ -44,7 +44,7 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 
 ## 铜层核对
 
-Gerber 与设计坐标表应使用同一原点和坐标方向。在配置文件参数后追加顶层 Gerber，需要核对底面时再追加底层 Gerber。清除圆弧按扫过的范围和线宽筛查，能排除未受影响的焊盘；含弧铜区可区分实铜和通过折返路径围出的孔。[命令覆盖表](docs/gerber-acceptance.md#规范命令矩阵) · [圆弧清除对照](docs/gerber-acceptance.md#圆弧清除对照) · [步进重复拼板](docs/gerber-acceptance.md#步进重复拼板)
+Gerber 与设计坐标表应使用同一原点和坐标方向。在配置文件参数后追加顶层 Gerber，需要核对底面时再追加底层 Gerber。清除圆弧按扫过的范围和线宽筛查，能排除未受影响的焊盘；含弧铜区可区分实铜和通过折返路径围出的孔。[命令覆盖表](docs/gerber-acceptance.md#规范命令矩阵) · [圆弧清除对照](docs/gerber-acceptance.md#圆弧清除对照) · [步进重复拼板](docs/gerber-acceptance.md#步进重复拼板) · [块光圈与独立对照](docs/gerber-acceptance.md#块光圈与独立对照)
 
 D1 算例验证了参数化光圈宏的镜像、旋转和缩放。KiCad 双面板的 U3 则验证了倾斜的圆角矩形焊盘。[输入与验证方法](docs/gerber-acceptance.md#输入命令和实测输出)
 

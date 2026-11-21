@@ -88,6 +88,9 @@ fn in_flash_hole(kind : GerberKind, point : Point, margin : Double) -> Bool {
 fn clear_may_cover(kind : GerberKind, point : Point, margin : Double) -> Bool {
   match kind {
     Arc(arc) => arc.may_cover(point, margin)
+    Draw(shape, from, to) =>
+      shape.bounding_radius() > 0.0 &&
+      segment_distance(point, from, to) <= shape.bounding_radius() + margin
     Region(region) => region.may_cover(point, margin)
     _ => !in_flash_hole(kind, point, margin)
   }
@@ -145,7 +148,9 @@ pub fn copper_at(
       Flash(shape, center) => shape.expanded(tolerance).contains(center, point)
       Region(region) => region.covers(point)
       Arc(arc) => arc.covers(point, tolerance)
-      _ => false
+      Draw(shape, from, to) =>
+        shape.bounding_radius() > 0.0 &&
+        segment_distance(point, from, to) <= shape.bounding_radius() + tolerance
     }
     if contains {
       covered = true

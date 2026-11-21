@@ -49,16 +49,15 @@ fn GerberState::emit(
   feature : GerberFeature,
   source : String,
 ) -> Unit raise GerberError {
+  if self.block_stack.get(self.block_stack.length() - 1) is Some(block) {
+    self.charge_block(feature, source)
+    block.features.push(feature)
+    return
+  }
   match self.repeat {
     None => self.features.push(feature)
     Some(repeat) => {
-      let mut cost = 1
-      if feature.kind is Region(region) {
-        for contour in region.contours {
-          cost += contour.points.length()
-        }
-      }
-      repeat.cost += cost
+      repeat.cost += feature_cost(feature)
       if repeat.cost > self.repeat_budget / (repeat.columns * repeat.rows) {
         raise InvalidGerber(
           source, "SR 展开超出 200000 个对象及轮廓顶点的累计上限",
@@ -76,6 +75,9 @@ fn parse_repeat(
   statement : String,
   source : String,
 ) -> Unit raise GerberError {
+  if !state.block_stack.is_empty() {
+    raise InvalidGerber(source, "AB 块光圈内不能使用 SR 步进重复")
+  }
   if fields.is_empty() {
     guard state.repeat is Some(repeat) else {
       raise InvalidGerber(source, "SR 结束指令前没有打开步进重复")

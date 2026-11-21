@@ -75,6 +75,10 @@ priv struct GerberState {
   warnings : Array[String]
   mut repeat : GerberRepeat?
   mut repeat_budget : Int32
+  blocks : Map[Int32, Array[GerberFeature]]
+  block_stack : Array[GerberBlock]
+  mut block_budget : Int32
+  block_seen_refs : Map[String, Bool]
   repeated_refs : Map[String, Bool]
 }
 
@@ -248,6 +252,10 @@ fn parse_aperture(
   }
   if index >= chars.length() {
     raise InvalidGerber(source, "光圈定义缺少模板")
+  }
+  if state.blocks.contains(code) ||
+    state.block_stack.any(block => block.code == code) {
+    raise InvalidGerber(source, "光圈编号已用于 AB：D\{code}")
   }
   guard state.scale is Some(scale) else {
     raise InvalidGerber(source, "光圈定义前缺少 MO 单位声明")
@@ -430,6 +438,10 @@ fn current_aperture(
 ) -> Aperture raise GerberError {
   match state.apertures.get(state.current_aperture) {
     Some(shape) => shape
+    None if state.blocks.contains(state.current_aperture) =>
+      raise InvalidGerber(
+        source, "AB 块光圈仅用于 D03，不能用于 D01",
+      )
     None => raise InvalidGerber(source, "未选择光圈")
   }
 }
@@ -635,6 +647,11 @@ fn process_operation(
       if state.region {
         raise InvalidGerber(source, "区域轮廓中不能使用 D03")
       }
+      if state.blocks.get(state.current_aperture) is Some(contents) {
+        flash_block(state, contents, target, source)
+        state.current = Some(target)
+        return
+      }
       let aperture = current_aperture(state, source)
       let matrix = aperture_matrix(state)
       let offset = matrix.apply(aperture.offset)
@@ -715,8 +732,8 @@ fn process_statement(
           statement,
           source,
         )
-      ('A', 'B')
-      | ('A', 'S')
+      ('A', 'B') => return parse_block(state, chars_to_string(chars, 2), source)
+      ('A', 'S')
       | ('M', 'I')
       | ('O', 'F')
       | ('S', 'F')
@@ -772,8 +789,8 @@ fn process_statement(
 ///|
 /// Parse an RS-274X Gerber file.
 ///
-/// Reads standard apertures, selected macros, flashes, circular strokes,
-/// filled regions, polarity and X2 component/pin attributes.
+/// Reads standard apertures, selected macros, flashes, strokes, regions,
+/// block apertures, step repeats, polarity and X2 component/pin attributes.
 pub fn parse_gerber(
   text : String,
   source~ : String,
@@ -803,6 +820,10 @@ pub fn parse_gerber(
     warnings: [],
     repeat: None,
     repeat_budget: 200000,
+    blocks: Map([]),
+    block_stack: [],
+    block_budget: 200000,
+    block_seen_refs: Map([]),
     repeated_refs: Map([]),
   }
   for statement in split_statements(text, source) {
@@ -816,6 +837,9 @@ pub fn parse_gerber(
   }
   if state.repeat is Some(_) {
     raise InvalidGerber(source, "步进重复缺少结束指令 SR")
+  }
+  if !state.block_stack.is_empty() {
+    raise InvalidGerber(source, "块光圈缺少结束指令 AB")
   }
   if state.features.any(feature => !feature.dark) {
     state.warnings.push(

@@ -44,6 +44,17 @@ fn aperture_fields(text : String, separator : Char) -> Array[String] {
 fn transform_shape(shape : Shape, matrix : Transform2D) -> Shape {
   if matrix.a == 1.0 && matrix.b == 0.0 && matrix.d == 0.0 && matrix.e == 1.0 {
     shape
+  } else if shape is Transformed(inner, first) {
+    // These aperture transforms have no translation. Compose them so a deep
+    // chain of block definitions never creates a deep runtime shape.
+    Transformed(inner, {
+      a: matrix.a * first.a + matrix.b * first.d,
+      b: matrix.a * first.b + matrix.b * first.e,
+      c: 0.0,
+      d: matrix.d * first.a + matrix.e * first.d,
+      e: matrix.d * first.b + matrix.e * first.e,
+      f: 0.0,
+    })
   } else {
     Transformed(shape, matrix)
   }

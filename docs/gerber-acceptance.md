@@ -8,7 +8,7 @@
 
 ## 规范命令矩阵
 
-分母取自 **2024.05 版 §2.8 的 26 行**。`G36` 和 `G37` 各计一行，`AB` 和 `SR` 分别按开、闭合计一行。当前 **已实现 11 / 26，部分处理 14 / 26，拒收 1 / 26**。「已实现」指命令的当前用法已有可检查结果。部分处理的命令即使通过个别示例，也仍计入部分处理。[规范 §2.8，印刷页 19](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf#page=19)
+分母取自 **2024.05 版 §2.8 的 26 行**。`G36` 和 `G37` 各计一行，`AB` 和 `SR` 各自合计一行。当前 **已实现 11 / 26，部分处理 15 / 26，整项拒收 0 / 26**。「已实现」指命令的当前用法已有可检查结果。部分处理的命令即使通过个别示例，也仍计入部分处理。[规范 §2.8，印刷页 19](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf#page=19)
 
 | 命令 | 状态 | 测试或样例 | 失败或剩余边界 |
 | --- | --- | --- | --- |
@@ -31,8 +31,8 @@
 | `LS` | 已实现 | D1 双焊盘面积加权案例及通过对照 | 按原始光圈缩放，非正或不可计算比例报输入错误 |
 | `G36` | 部分处理 | 单测「regions become filled polygons」及含弧区域回归 | 支持多个闭合轮廓取并集与遵循规范的折返开孔 |
 | `G37` | 部分处理 | 同一单轮廓与含弧区域回归 | 关闭铜区；未闭合轮廓、未关闭铜区报输入错误 |
-| `AB` | 拒收 | CLI「rejects Gerber commands」块光圈案例 | 直接报输入错误 |
-| `SR` | 部分处理 | 单测「SR repeats the whole block」、拼板 D1 对照 | 支持显式闭合的步进重复、毫米或英寸步长及混合极性。块光圈和旧式隐式结束仍拒收 |
+| `AB` | 部分处理 | 嵌套与反极性单测、AB+SR 拼板、PyGerber 对照 | 支持嵌套定义和放置、组合变换及逐对象极性翻转。复杂的 X2 属性传递及非闪光焊盘的中心核验待补 |
+| `SR` | 部分处理 | 单测「SR repeats the whole block」、拼板 D1 对照 | 支持显式闭合的步进重复、毫米或英寸步长及混合极性。可调用和定义块光圈；旧式隐式结束仍拒收 |
 | `TF` | 部分处理 | D1 样例包含 `.FileFunction` | 完整文件属性保留待完成，负像文件报输入错误 |
 | `TA` | 部分处理 | KiCad 双面实导出携带光圈属性 | 识别命令，当前未保留到对象。完整作用域待完成 |
 | `TO` | 部分处理 | 单测「TO.P supplies the owner」 | 提取 `.P/.C`，其他对象属性的保留待完成 |
@@ -94,10 +94,25 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 
 [实测 JSON 摘录](../examples/gerber/results.json)保留两组结果。铜区弧段以 0.001 mm 弦高为目标，达到分段上限时使用实际弦高，并计入起止半径差。边界误差带内不确认新增铜证据，清除按可能覆盖判断。多个 D02 轮廓各自填充后取并集，不把内轮廓自动解释成孔。见 [Gerber 2024.05 §4.10](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf#page=90)。
 
-KiCad 实导出同时验证圆角 U3 和带对称切角的 R2。热焊盘的环形面积和绝缘间隙另由 MoonBit 单测验证。复杂宏仍按已支持的组合读入，暂不支持任意图元叠加、相交或跨边切除。块光圈 `AB` 仍拒收。
+KiCad 实导出同时验证圆角 U3 和带对称切角的 R2。热焊盘的环形面积和绝缘间隙另由 MoonBit 单测验证。复杂宏仍按已支持的组合读入，暂不支持任意图元叠加、相交或跨边切除。块光圈的验证见下方。
 
 ### 步进重复拼板
 
 用上方命令换入 [`panel-sr.gbr`](../examples/gerber/panel-sr.gbr)。D1 焊盘出现在 2 × 2 个单元中，报告将 D1 标为 `repeated_reference`（退出码 2），其他四颗照常核验。不会把四块焊盘取平均后报成一个偏移。[实测 JSON 摘录](../examples/gerber/results.json)
 
 按 [Gerber 2024.05 §4.12](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf#page=116) 先沿 Y 再沿 X 复制完整对象组，保留清除与绘制先后。每组最多 10000 个单元，每层累计展开最多 200000 个对象及轮廓顶点；超过限制返回输入错误。当前不自动为表格补拼板单元编号，含重复位号时请分单元输入。
+
+### 块光圈与独立对照
+
+- [AB + SR 拼板](../examples/gerber/panel-ab-sr.gbr) 内嵌两级块，外层调用做镜像、旋转、缩放，再沿 X 复制。两份铜的中心分别是 (24, 13) 和 (34, 13) mm。[手工展开版](../examples/gerber/panel-ab-expanded.gbr) 的物理铜点相同。块版中的 D1 位号明确重复，报告返回 `repeated_reference`；展开版刻意不附 D1 位号，只提供 `copper_only`。其余位号的核验一致。
+- 极性回归检查正极性块清除块外已有铜，以及负极性放置逐个反转嵌套对象的极性。依据 [Gerber 2024.05 §4.11](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf#page=111)。定义深度最多 32 层，每层文件累计处理最多 200000 个块对象和区域顶点；块定义内禁止 `SR`。
+- [PyGerber 2.4.3](https://argmaster.github.io/pygerber/2.4.3/reference/pygerber/gerberx3/api/v2.html) 独立渲染两份拼板和 KiCad 实际导出的顶铜。每毫米 80 像素，采样点避开边缘，周围 3 × 3 个像素必须一致。对照的是关键点有铜或无铜，不用于证明全部几何或位号语义一致。CI 保存渲染图、采样坐标、工具版本和比对结果。PyGerber 只用于测试，运行 MoonPlacement 不需要 Python。
+
+复现（先按示例说明安装 `kicad-cli`，省略最后一个目录参数时只测两份拼板）：
+
+```sh
+moon build --target js
+node tests/kicad-export.mjs
+python -m pip install pygerber==2.4.3
+python tests/gerber-oracle.py _build/kicad-evidence/copper
+```
