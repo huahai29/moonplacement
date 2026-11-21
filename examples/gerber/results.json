@@ -208,5 +208,22 @@
       }
     ],
     "pad_differences": []
+  },
+  "panel-sr.gbr": {
+    "exit_code": 2,
+    "status": "indeterminate",
+    "pad_status": "incomplete",
+    "pad_checked": 4,
+    "pad_evidence": [
+      {
+        "ref": "D1",
+        "side": "top",
+        "evidence": {
+          "status": "unverified",
+          "reason": "repeated_reference"
+        }
+      }
+    ],
+    "pad_differences": []
   }
 }

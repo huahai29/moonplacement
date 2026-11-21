@@ -38,7 +38,7 @@
 - 坐标支持 `FS` 声明的绝对坐标及前零、尾零省略。`MO` 必须声明毫米或英寸，省略的 X/Y 轴沿用当前位置，单独的 `D03` 在当前位置放置焊盘。增量坐标、两轴位宽不一致和无效坐标会返回 `input_error`。见 [Gerber 格式规范](https://www.ucamco.com/en/gerber)。
 - 标准 `C`/`R`/`O`/`P` 支持同心圆孔。光圈宏支持单圆、中心线矩形、向量线、多边形轮廓、正多边形、热焊盘以及 KiCad 圆角矩形组合。部分实心外形可开多个互不接触的圆孔。孔内区域不提供铜证据，也不清除孔下已有的铜。焊盘归属优先用 X2 `TO.P` 的位号，其次用 `TO.C`。`TD` 支持按属性名清除。其他命令与范围见 [Gerber 2024.05 验收](gerber-acceptance.md)。
 - 有位号归属时，计算该器件暗色闪光焊盘的面积加权中心，与送厂坐标比较。差值超过 `pad_tolerance_mm` 记为 `pad_offset`。该中心不一定等于不对称封装的贴装原点；用此结果判断贴装偏位前应确认原点定义。
-- 无归属时，只提供「附近有铜」或「未核验」线索。附近铜可由受支持的闪光、圆弧描线和区域提供。后绘制的清除圆弧按实际弧段及线宽筛查，焊盘用外接圆估计，可能相交的位号标为未核验。含弧区域按轮廓判断。一个铜区内的独立轮廓取并集，折返路径围出的孔保持透明。圆弧离散误差带内保守处理。超出当前范围的宏、块光圈和步进重复会返回输入错误。
+- 无归属时，只提供「附近有铜」或「未核验」线索。附近铜可由受支持的闪光、圆弧描线和区域提供。后绘制的清除圆弧按实际弧段及线宽筛查，焊盘用外接圆估计，可能相交的位号标为未核验。含弧区域按轮廓判断。一个铜区内的独立轮廓取并集，折返路径围出的孔保持透明。圆弧离散误差带内保守处理。超出当前范围的宏和块光圈会返回输入错误。拼板 `SR` 可展开几何。若同一位号随拼板被复制，会提示按单元拆分后再核验。
 - 两份表都带 `Val` / `Package` 列时，还会逐位号比较型号与封装，差异记为 `value` 与 `package`。
 
 有唯一变换时，只要确认了一项差异，结论即为 `different`。若无差异但所请求的铜层缺少位号证据，结论为 `indeterminate`。没有要求铜层核验时，继续沿用两表判定。
@@ -51,7 +51,7 @@
 - 每个算出平移的 `frame` 都含 `anchor_residuals` 和 `worst_anchor_refs`。逐点残差按配置里的基准顺序给出位号、对齐后送厂点减基准点的 `delta_x_mm`、`delta_y_mm`、二维距离 `distance_mm`、是否在基准容差内以及是否进入一致集合的 `inlier`。`worst_anchor_refs` 包含达到最大残差的全部位号。残差可用于定位复核对象，同一组基准可能有多个并列最差点。
 - `differences` 记录器件差异。即使整体状态为 `indeterminate`，仍列出已确认的 `missing`、`extra`、`side`，以及 `value` 和 `package`。有唯一对齐变换时，也列出 `position` 和 `angle`。某位号缺失、而一个新位号恰好落在它的期望位置时，按改名处理并记为 `swapped`，`with` 给出新位号，不再重复记为 `missing` 和 `extra`。
 - `pad_differences` 记录可归属到位号的 `pad_offset`。`pad_checked` 只计有归属的器件，包含超限器件；`pad_sides` 是用户传入的板面。`pad_status` 为 `not_requested`、`skipped`（无唯一对齐，等同 `pad_skipped: true`）、`incomplete`（缺位号证据）或 `complete`（证据齐全，可能仍有超限）。
-- `pad_evidence` 按位号和板面记录 `by_reference`、`copper_only` 或 `unverified`。`by_reference` 同时给出焊盘数、距离及是否在容差内。可能被后绘制的清除对象影响时，`unverified` 带 `reason: "possible_clearance"`。`pad_warnings` 保留板面诊断，普通圆弧和远处的清除对象可与 `pad_status: "complete"` 共存。
+- `pad_evidence` 按位号和板面记录 `by_reference`、`copper_only` 或 `unverified`。`by_reference` 同时给出焊盘数、距离及是否在容差内。可能被后绘制的清除对象影响时，`unverified` 带 `reason: "possible_clearance"`。拼板内重复位号返回 `reason: "repeated_reference"`。`pad_warnings` 保留板面诊断，普通圆弧和远处的清除对象可与 `pad_status: "complete"` 共存。
 - `anchor_issues` 单独记录基准异常。`anchor_missing_baseline`、`anchor_missing_delivery`、`anchor_missing_both` 分别表示缺在基准表、送厂表或两表，`anchor_side` 表示板面不一致。
 - 报告同时记录两表行数、基准位号和本次容差。输入无效时输出 `input_error`、`field` 和 `message`。
 

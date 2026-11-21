@@ -303,6 +303,8 @@ pub fn audit(
         Unverified => { "status": Json("unverified") }
         PossibleClearance =>
           { "status": Json("unverified"), "reason": Json("possible_clearance") }
+        RepeatedReference =>
+          { "status": Json("unverified"), "reason": Json("repeated_reference") }
       }
       pad_results.push({
         "ref": Json(refdes),

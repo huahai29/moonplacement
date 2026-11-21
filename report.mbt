@@ -227,7 +227,14 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
     if json_get(item, "evidence") is Some(evidence) {
       let description = match json_string(evidence, "status") {
         "copper_only" => "附近有铜，位号归属未知"
-        "unverified" => "缺少可用的焊盘证据"
+        "unverified" =>
+          match json_string(evidence, "reason") {
+            "repeated_reference" =>
+              "拼板中位号重复，请按单元拆分后核验"
+            "possible_clearance" =>
+              "焊盘可能受后绘制的清除对象影响"
+            _ => "缺少可用的焊盘证据"
+          }
         _ => continue
       }
       if !listed_incomplete {

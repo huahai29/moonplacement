@@ -64,12 +64,25 @@ test('rejects Gerber commands whose geometry cannot be isolated', t => {
   for (const [input, message] of [
     [original.replace('1,1,$1,$2,0,0*%', '1,1,$1,$2,0,0*1,0,0.2,0,0,0*%'), /圆孔必须/],
     [original.replace('1,1,$1,$2,0,0*%', '1,1,$1,$2,0,0*1,0,0.2,0,0,0*1,1,0.1,0,0,0*%'), /多图元光圈宏/],
-    [original.replace('M02*', '%SRX2Y1I1J0*%%SR*%M02*'), /SRX2/],
+    [original.replace('M02*', '%SRX2Y1I1J0*%M02*'), /步进重复缺少结束/],
     [original.replace('M02*', '%ABD20*%%AB*%M02*'), /ABD20/],
   ]) {
     writeFileSync(file, input);
     assert.match(run([baseline, delivery, policy, file], 64).message, message);
   }
+});
+
+test('panel repeats do not average duplicated references into a phantom pad offset', t => {
+  const work = mkdtempSync(join(tmpdir(), 'moonplacement-panel-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const html = join(work, 'panel.html');
+  const report = run([baseline, delivery, policy, join(gerberExamples, 'panel-sr.gbr'), '--html', html], 2);
+  assert.equal(report.status, 'indeterminate');
+  assert.equal(report.pad_checked, 4);
+  assert.deepEqual(report.pad_differences, []);
+  assert.deepEqual(report.pad_evidence.find(({ ref }) => ref === 'D1').evidence,
+    { status: 'unverified', reason: 'repeated_reference' });
+  assert.match(readFileSync(html, 'utf8'), /D1（顶面）：拼板中位号重复，请按单元拆分后核验/);
 });
 
 test('keeps unrelated flash evidence when a layer has arcs or clear objects', t => {

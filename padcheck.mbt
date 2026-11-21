@@ -108,7 +108,8 @@ fn refs_with_possible_clearance(document : GerberDocument) -> Map[String, Bool] 
       }
     } else if !later_clear.is_empty() &&
       feature.kind is Flash(shape, center) &&
-      feature.refdes is Some(refdes) {
+      feature.refdes is Some(refdes) &&
+      !document.repeated_refs.contains(designator(refdes)) {
       let radius = shape.bounding_radius()
       let pad_bounds = bounds_at(center, radius)
       if later_clear.any(item => {
@@ -159,6 +160,7 @@ priv enum PadEvidence {
   CopperOnly
   Unverified
   PossibleClearance
+  RepeatedReference
 }
 
 ///|
@@ -175,6 +177,10 @@ fn pad_evidence(
   for i in 0..<count {
     let point = positions[i]
     let reference = designator(refdes[i])
+    if document.repeated_refs.contains(reference) {
+      evidence.push(RepeatedReference)
+      continue
+    }
     if affected.contains(reference) {
       evidence.push(PossibleClearance)
       continue

@@ -8,7 +8,7 @@
 
 ## 规范命令矩阵
 
-分母取自 **2024.05 版 §2.8 的 26 行**。`G36` 和 `G37` 各计一行，`AB` 和 `SR` 分别按开、闭合计一行。当前 **已实现 11 / 26，部分处理 13 / 26，拒收 2 / 26**。「已实现」指命令的当前用法已有可检查结果。部分处理的命令即使通过个别示例，也仍计入部分处理。[规范 §2.8，印刷页 19](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf#page=19)
+分母取自 **2024.05 版 §2.8 的 26 行**。`G36` 和 `G37` 各计一行，`AB` 和 `SR` 分别按开、闭合计一行。当前 **已实现 11 / 26，部分处理 14 / 26，拒收 1 / 26**。「已实现」指命令的当前用法已有可检查结果。部分处理的命令即使通过个别示例，也仍计入部分处理。[规范 §2.8，印刷页 19](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf#page=19)
 
 | 命令 | 状态 | 测试或样例 | 失败或剩余边界 |
 | --- | --- | --- | --- |
@@ -32,7 +32,7 @@
 | `G36` | 部分处理 | 单测「regions become filled polygons」及含弧区域回归 | 支持多个闭合轮廓取并集与遵循规范的折返开孔 |
 | `G37` | 部分处理 | 同一单轮廓与含弧区域回归 | 关闭铜区；未闭合轮廓、未关闭铜区报输入错误 |
 | `AB` | 拒收 | CLI「rejects Gerber commands」块光圈案例 | 直接报输入错误 |
-| `SR` | 拒收 | 同一 CLI 回归的步进重复案例 | 直接报输入错误 |
+| `SR` | 部分处理 | 单测「SR repeats the whole block」、拼板 D1 对照 | 支持显式闭合的步进重复、毫米或英寸步长及混合极性。块光圈和旧式隐式结束仍拒收 |
 | `TF` | 部分处理 | D1 样例包含 `.FileFunction` | 完整文件属性保留待完成，负像文件报输入错误 |
 | `TA` | 部分处理 | KiCad 双面实导出携带光圈属性 | 识别命令，当前未保留到对象。完整作用域待完成 |
 | `TO` | 部分处理 | 单测「TO.P supplies the owner」 | 提取 `.P/.C`，其他对象属性的保留待完成 |
@@ -94,4 +94,10 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 
 [实测 JSON 摘录](../examples/gerber/results.json)保留两组结果。铜区弧段以 0.001 mm 弦高为目标，达到分段上限时使用实际弦高，并计入起止半径差。边界误差带内不确认新增铜证据，清除按可能覆盖判断。多个 D02 轮廓各自填充后取并集，不把内轮廓自动解释成孔。见 [Gerber 2024.05 §4.10](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf#page=90)。
 
-KiCad 实导出同时验证圆角 U3 和带对称切角的 R2。热焊盘的环形面积和绝缘间隙另由 MoonBit 单测验证。复杂宏仍按已支持的组合读入，暂不支持任意图元叠加、相交或跨边切除。块光圈和步进重复继续单列为拒收。
+KiCad 实导出同时验证圆角 U3 和带对称切角的 R2。热焊盘的环形面积和绝缘间隙另由 MoonBit 单测验证。复杂宏仍按已支持的组合读入，暂不支持任意图元叠加、相交或跨边切除。块光圈 `AB` 仍拒收。
+
+### 步进重复拼板
+
+用上方命令换入 [`panel-sr.gbr`](../examples/gerber/panel-sr.gbr)。D1 焊盘出现在 2 × 2 个单元中，报告将 D1 标为 `repeated_reference`（退出码 2），其他四颗照常核验。不会把四块焊盘取平均后报成一个偏移。[实测 JSON 摘录](../examples/gerber/results.json)
+
+按 [Gerber 2024.05 §4.12](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf#page=116) 先沿 Y 再沿 X 复制完整对象组，保留清除与绘制先后。每组最多 10000 个单元，每层累计展开最多 200000 个对象及轮廓顶点；超过限制返回输入错误。当前不自动为表格补拼板单元编号，含重复位号时请分单元输入。

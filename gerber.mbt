@@ -32,6 +32,8 @@ pub struct GerberFeature {
 pub struct GerberDocument {
   features : Array[GerberFeature]
   warnings : Array[String]
+  /// Normalized references that appear in multiple panel copies.
+  repeated_refs : Map[String, Bool]
 }
 
 ///|
@@ -71,6 +73,9 @@ priv struct GerberState {
   mut pin_refdes : String?
   features : Array[GerberFeature]
   warnings : Array[String]
+  mut repeat : GerberRepeat?
+  mut repeat_budget : Int32
+  repeated_refs : Map[String, Bool]
 }
 
 ///|
@@ -440,11 +445,14 @@ fn flush_region(state : GerberState, source : String) -> Unit raise GerberError 
   for contour in contours {
     bounds = bounds.union(contour.bounds)
   }
-  state.features.push({
-    kind: Region({ contours, bounds, }),
-    dark: state.dark,
-    refdes: feature_refdes(state),
-  })
+  state.emit(
+    {
+      kind: Region({ contours, bounds, }),
+      dark: state.dark,
+      refdes: feature_refdes(state),
+    },
+    source,
+  )
   state.region = false
   state.region_contours = []
 }
@@ -593,24 +601,27 @@ fn process_operation(
         if shape.area().is_inf() || shape.area().is_nan() {
           raise InvalidGerber(source, "描线光圈面积超出可计算范围")
         }
-        state.features.push({
-          kind: match offset {
-            Some(offset) =>
-              Arc(
-                make_gerber_arc(
-                  start,
-                  target,
-                  offset,
-                  state.interpolation == 2,
-                  shape.bounding_radius(),
-                  source,
-                ),
-              )
-            None => Draw(shape, start, target)
+        state.emit(
+          {
+            kind: match offset {
+              Some(offset) =>
+                Arc(
+                  make_gerber_arc(
+                    start,
+                    target,
+                    offset,
+                    state.interpolation == 2,
+                    shape.bounding_radius(),
+                    source,
+                  ),
+                )
+              None => Draw(shape, start, target)
+            },
+            dark: state.dark,
+            refdes: feature_refdes(state),
           },
-          dark: state.dark,
-          refdes: feature_refdes(state),
-        })
+          source,
+        )
       }
     }
     2 =>
@@ -638,11 +649,14 @@ fn process_operation(
         center.y.is_inf() {
         raise InvalidGerber(source, "闪光几何超出可计算范围")
       }
-      state.features.push({
-        kind: Flash(shape, center),
-        dark: state.dark,
-        refdes: feature_refdes(state),
-      })
+      state.emit(
+        {
+          kind: Flash(shape, center),
+          dark: state.dark,
+          refdes: feature_refdes(state),
+        },
+        source,
+      )
     }
     _ => ()
   }
@@ -694,8 +708,14 @@ fn process_statement(
         state.macros[name] = body.to_owned()
         return
       }
+      ('S', 'R') =>
+        return parse_repeat(
+          state,
+          to_chars(chars_to_string(chars, 2)),
+          statement,
+          source,
+        )
       ('A', 'B')
-      | ('S', 'R')
       | ('A', 'S')
       | ('M', 'I')
       | ('O', 'F')
@@ -781,6 +801,9 @@ pub fn parse_gerber(
     pin_refdes: None,
     features: [],
     warnings: [],
+    repeat: None,
+    repeat_budget: 200000,
+    repeated_refs: Map([]),
   }
   for statement in split_statements(text, source) {
     if statement == "M02" {
@@ -791,10 +814,22 @@ pub fn parse_gerber(
   if state.region {
     raise InvalidGerber(source, "区域缺少结束指令 G37")
   }
+  if state.repeat is Some(_) {
+    raise InvalidGerber(source, "步进重复缺少结束指令 SR")
+  }
   if state.features.any(feature => !feature.dark) {
     state.warnings.push(
       "清除对象按保守范围确定可能受影响的焊盘",
     )
   }
-  { features: state.features, warnings: state.warnings, }
+  if !state.repeated_refs.is_empty() {
+    state.warnings.push(
+      "SR 拼板中有重复位号，需按单元拆分后才能核验这些器件",
+    )
+  }
+  {
+    features: state.features,
+    warnings: state.warnings,
+    repeated_refs: state.repeated_refs,
+  }
 }
