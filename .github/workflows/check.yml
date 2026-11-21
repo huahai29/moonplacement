@@ -7,37 +7,62 @@ permissions:
   contents: read
 jobs:
   verify:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - uses: actions/setup-python@v5
+        if: runner.os == 'Linux'
         with:
           python-version: '3.11'
       - name: 安装固定 MoonBit 工具链
         run: |
-          curl -fsSL https://cli.moonbitlang.com/install/unix.sh -o /tmp/install-moonbit.sh
-          bash /tmp/install-moonbit.sh "$(cat .moonbit-version)"
-          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+          version="$(tr -d '\r\n' < .moonbit-version)"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            MOONBIT_INSTALL_VERSION="$version" pwsh -NoProfile -Command "irm https://cli.moonbitlang.com/install/powershell.ps1 | iex"
+            echo "$USERPROFILE/.moon/bin" >> "$GITHUB_PATH"
+          else
+            curl -fsSL https://cli.moonbitlang.com/install/unix.sh -o /tmp/install-moonbit.sh
+            bash /tmp/install-moonbit.sh "$version"
+            echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+          fi
       - name: 格式与检查
         run: |
           moon version --all
-          moon version --all | grep -F "moonc v$(cat .moonbit-version)"
+          moon version --all | grep -F "moonc v$(tr -d '\r\n' < .moonbit-version)"
           moon fmt --check
           moon check --target all --deny-warn
-      - name: 四后端测试
+      - name: JS 和 Wasm-GC 测试
         run: |
           moon test --target js
           moon test --target wasm-gc
+      - name: Linux Wasm 与 Native 测试
+        if: runner.os == 'Linux'
+        run: |
           moon test --target wasm
           moon test --target native
       - name: 构建与命令行测试
         run: |
           moon build --target js
           node --test tests/cli.test.mjs
+      - name: 保存跨平台案例输出
+        run: node tests/platform-cases.mjs record
+      - uses: actions/upload-artifact@v4
+        with:
+          name: platform-${{ runner.os }}
+          path: _build/platform-cases.json
+          if-no-files-found: error
       - name: 验证归档可被独立项目使用
+        if: runner.os == 'Linux'
         run: |
           moon package --frozen
           mkdir -p _build/unpacked-release
@@ -46,18 +71,21 @@ jobs:
           test -n "$module"
           node tests/release-consumer.mjs --unpacked "$(dirname "$module")"
       - name: 复核 KiCad 实际导出
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends kicad
           node tests/kicad-export.mjs
       - name: 开源实板拼板验收
+        if: runner.os == 'Linux'
         run: node tests/kicad-panel.mjs
       - name: 独立 Gerber 铜层对照
+        if: runner.os == 'Linux'
         run: |
           python -m pip install pygerber==2.4.3
           python tests/gerber-oracle.py _build/kicad-evidence/copper
       - name: 保存 KiCad 导出与核对报告
-        if: always()
+        if: always() && runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: kicad-evidence
@@ -67,3 +95,18 @@ jobs:
             _build/release-consumer/unpacked.json
             _build/real-panel
           if-no-files-found: ignore
+
+  compare-platforms:
+    needs: verify
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: platform-*
+          path: _build/platform-reports
+      - name: 比对 Windows 与 Linux 的报告
+        run: node tests/platform-cases.mjs compare _build/platform-reports/platform-Linux/platform-cases.json _build/platform-reports/platform-Windows/platform-cases.json
