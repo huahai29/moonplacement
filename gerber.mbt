@@ -24,6 +24,8 @@ pub struct GerberFeature {
   kind : GerberKind
   dark : Bool
   refdes : String?
+  pin : String?
+  statement_number : Int32
   block_instance : Int32?
 }
 
@@ -74,6 +76,8 @@ priv struct GerberState {
   mut region_vertices : Int32
   mut refdes : String?
   mut pin_refdes : String?
+  mut pin_name : String?
+  mut statement_number : Int32
   features : Array[GerberFeature]
   warnings : Array[String]
   mut repeat : GerberRepeat?
@@ -344,17 +348,34 @@ fn parse_attribute(state : GerberState, chars : Array[Char]) -> Unit {
     return
   }
   let value = StringBuilder()
+  let mut end = 5
   for index in 5..<chars.length() {
     if chars[index] == ',' {
       break
     }
     value.write_char(chars[index])
+    end = index + 1
   }
   let refdes = value.to_string()
   let attribute = if refdes.is_empty() { None } else { Some(refdes) }
   match chars[3] {
     'C' => state.refdes = attribute
-    'P' => state.pin_refdes = attribute
+    'P' => {
+      state.pin_refdes = attribute
+      state.pin_name = None
+      let start = end + 1
+      let pin = StringBuilder()
+      for i in start..<chars.length() {
+        if chars[i] == ',' {
+          break
+        }
+        pin.write_char(chars[i])
+      }
+      let pin = pin.to_string()
+      if attribute is Some(_) && !pin.is_empty() {
+        state.pin_name = Some(pin)
+      }
+    }
     _ => ()
   }
 }
@@ -467,6 +488,8 @@ fn flush_region(state : GerberState, source : String) -> Unit raise GerberError 
       kind: Region({ contours, bounds, }),
       dark: state.dark,
       refdes: feature_refdes(state),
+      pin: state.pin_name,
+      statement_number: state.statement_number,
       block_instance: None,
     },
     source,
@@ -637,6 +660,8 @@ fn process_operation(
             },
             dark: state.dark,
             refdes: feature_refdes(state),
+            pin: state.pin_name,
+            statement_number: state.statement_number,
             block_instance: None,
           },
           source,
@@ -678,6 +703,8 @@ fn process_operation(
           kind: Flash(shape, center),
           dark: state.dark,
           refdes: feature_refdes(state),
+          pin: state.pin_name,
+          statement_number: state.statement_number,
           block_instance: None,
         },
         source,
@@ -756,6 +783,7 @@ fn process_statement(
         if chars_to_string(chars, 2) == ".D" {
           state.refdes = None
           state.pin_refdes = None
+          state.pin_name = None
         } else {
           parse_attribute(state, chars)
         }
@@ -766,9 +794,13 @@ fn process_statement(
           "" => {
             state.refdes = None
             state.pin_refdes = None
+            state.pin_name = None
           }
           ".C" => state.refdes = None
-          ".P" => state.pin_refdes = None
+          ".P" => {
+            state.pin_refdes = None
+            state.pin_name = None
+          }
           _ => ()
         }
         return
@@ -824,6 +856,8 @@ pub fn parse_gerber(
     region_vertices: 0,
     refdes: None,
     pin_refdes: None,
+    pin_name: None,
+    statement_number: 0,
     features: [],
     warnings: [],
     repeat: None,
@@ -836,10 +870,11 @@ pub fn parse_gerber(
     block_instances: 0,
     repeated_refs: Map([]),
   }
-  for statement in split_statements(text, source) {
+  for index, statement in split_statements(text, source) {
     if statement == "M02" {
       break
     }
+    state.statement_number = index + 1
     process_statement(state, statement, source)
   }
   if state.region {

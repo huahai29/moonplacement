@@ -313,8 +313,34 @@ pub fn audit(
         }
         CopperOnly => { "status": Json("copper_only") }
         Unverified => { "status": Json("unverified") }
-        PossibleClearance =>
-          { "status": Json("unverified"), "reason": Json("possible_clearance") }
+        PossibleClearance(witness) =>
+          {
+            "status": Json("unverified"),
+            "reason": Json("possible_clearance"),
+            "clearance": {
+              "pad": {
+                "object_number": Json(witness.pad_index),
+                "statement_number": Json(witness.pad_statement),
+                "pin": match witness.pin {
+                  Some(pin) => Json(pin)
+                  None => Json(null)
+                },
+                "x_mm": Json(witness.pad_center.x),
+                "y_mm": Json(witness.pad_center.y),
+              },
+              "object": {
+                "object_number": Json(witness.clear_index),
+                "statement_number": Json(witness.clear_statement),
+                "kind": Json(witness.clear_kind),
+                "bounds_mm": {
+                  "min_x": Json(witness.clear_bounds.lower.x),
+                  "min_y": Json(witness.clear_bounds.lower.y),
+                  "max_x": Json(witness.clear_bounds.upper.x),
+                  "max_y": Json(witness.clear_bounds.upper.y),
+                },
+              },
+            },
+          }
         RepeatedReference =>
           { "status": Json("unverified"), "reason": Json("repeated_reference") }
       }

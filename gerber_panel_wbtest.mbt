@@ -12,7 +12,10 @@ test "selecting a panel cell retains later local clear operations and normalizes
   assert_true(copper_at(first, p, 0.0))
   assert_false(copper_at(second, p, 0.0))
   assert_false(first.repeated_refs.contains("R1"))
-  guard! pad_evidence(second, ["R1"], [p], 0.1) is [PossibleClearance]
+  guard! pad_evidence(second, ["R1"], [p], 0.1) is [PossibleClearance(witness)]
+  assert_eq(witness.pin, Some("1"))
+  assert_eq(witness.pad_center.x, 1.0)
+  assert_eq(witness.clear_bounds.upper.x, 1.5)
 }
 
 ///|

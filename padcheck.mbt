@@ -97,17 +97,42 @@ fn clear_may_cover(kind : GerberKind, point : Point, margin : Double) -> Bool {
 }
 
 ///|
+priv struct ClearanceWitness {
+  pad_index : Int32
+  pad_statement : Int32
+  pin : String?
+  pad_center : Point
+  clear_index : Int32
+  clear_statement : Int32
+  clear_kind : String
+  clear_bounds : GerberBounds
+}
+
+///|
+fn gerber_kind_name(kind : GerberKind) -> String {
+  match kind {
+    Flash(_, _) => "flash"
+    Draw(_, _, _) => "line"
+    Arc(_) => "arc"
+    Region(_) => "region"
+  }
+}
+
+///|
 /// Only a clear object painted after a flash can invalidate that flash.
 /// Bounds can rule out an overlap without claiming to compute clipped area.
-fn refs_with_possible_clearance(document : GerberDocument) -> Map[String, Bool] {
-  let affected : Map[String, Bool] = Map([])
-  let later_clear : Array[(GerberKind, GerberBounds)] = []
+fn refs_with_possible_clearance(
+  document : GerberDocument,
+) -> Map[String, ClearanceWitness] {
+  let affected : Map[String, ClearanceWitness] = Map([])
+  let later_clear : Array[(Int32, GerberFeature, GerberBounds)] = []
   let count = document.features.length()
   for i in 0..<count {
-    let feature = document.features[count - i - 1]
+    let index = count - i - 1
+    let feature = document.features[index]
     if !feature.dark {
       if gerber_object_bounds(feature.kind) is Some(bounds) {
-        later_clear.push((feature.kind, bounds))
+        later_clear.push((index, feature, bounds))
       }
     } else if !later_clear.is_empty() &&
       feature.kind is Flash(shape, center) &&
@@ -115,10 +140,25 @@ fn refs_with_possible_clearance(document : GerberDocument) -> Map[String, Bool] 
       !document.repeated_refs.contains(designator(refdes)) {
       let radius = shape.bounding_radius()
       let pad_bounds = bounds_at(center, radius)
-      if later_clear.any(item => {
-          item.1.overlaps(pad_bounds) && clear_may_cover(item.0, center, radius)
-        }) {
-        affected[designator(refdes)] = true
+      let key = designator(refdes)
+      if affected.contains(key) {
+        continue
+      }
+      for (clear_index, clear, clear_bounds) in later_clear {
+        if clear_bounds.overlaps(pad_bounds) &&
+          clear_may_cover(clear.kind, center, radius) {
+          affected[key] = {
+            pad_index: index + 1,
+            pad_statement: feature.statement_number,
+            pin: feature.pin,
+            pad_center: center,
+            clear_index: clear_index + 1,
+            clear_statement: clear.statement_number,
+            clear_kind: gerber_kind_name(clear.kind),
+            clear_bounds,
+          }
+          break
+        }
       }
     }
   }
@@ -164,7 +204,7 @@ priv enum PadEvidence {
   ByReference(Int32, Point, Double)
   CopperOnly
   Unverified
-  PossibleClearance
+  PossibleClearance(ClearanceWitness)
   RepeatedReference
 }
 
@@ -186,8 +226,8 @@ fn pad_evidence(
       evidence.push(RepeatedReference)
       continue
     }
-    if affected.contains(reference) {
-      evidence.push(PossibleClearance)
+    if affected.get(reference) is Some(witness) {
+      evidence.push(PossibleClearance(witness))
       continue
     }
     evidence.push(

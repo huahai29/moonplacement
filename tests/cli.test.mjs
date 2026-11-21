@@ -170,19 +170,27 @@ test('keeps unrelated flash evidence when a layer has arcs or clear objects', t 
     if (message) assert.match(report.pad_warnings[0].message, message);
     else assert.deepEqual(report.pad_warnings, []);
   }
-  for (const statement of [
-    reset + '%LPC*%X24000000Y13000000D03*',
-    '%LPC*%' + arc('G03'),
-    '%LPC*%G75*G36*X24000000Y13400000D02*G03*' +
-      'X24400000Y13000000I0J-400000D01*G01*X24000000Y13400000D01*G37*',
+  for (const [statement, kind] of [
+    [reset + '%LPC*%X24000000Y13000000D03*', 'flash'],
+    [reset + '%LPC*%G01*X23500000Y13000000D02*X24500000D01*', 'line'],
+    ['%LPC*%' + arc('G03'), 'arc'],
+    ['%LPC*%G75*G36*X24000000Y13400000D02*G03*' +
+      'X24400000Y13000000I0J-400000D01*G01*X24000000Y13400000D01*G37*', 'region'],
   ]) {
     writeFileSync(file, original.replace('M02*', statement + 'M02*'));
     const report = run([baseline, delivery, policy, file], 2);
     assert.equal(report.reason, 'insufficient_pad_evidence');
     assert.equal(report.pad_status, 'incomplete');
     assert.equal(report.pad_checked, 4);
-    assert.deepEqual(report.pad_evidence.find(item => item.ref === 'D1').evidence,
-      { status: 'unverified', reason: 'possible_clearance' });
+    const { clearance, ...status } = report.pad_evidence.find(item => item.ref === 'D1').evidence;
+    assert.deepEqual(status, { status: 'unverified', reason: 'possible_clearance' });
+    assert.equal(clearance.pad.pin, '1');
+    assert.ok(Math.abs(clearance.pad.x_mm - 24) < 1e-8);
+    assert.ok(Math.abs(clearance.pad.y_mm - 13) < 1e-8);
+    assert.equal(clearance.object.kind, kind);
+    assert.ok(clearance.object.object_number > clearance.pad.object_number);
+    assert.ok(clearance.object.statement_number > clearance.pad.statement_number);
+    assert.ok(Object.values(clearance.object.bounds_mm).every(Number.isFinite));
     assert.deepEqual(report.pad_differences, []);
   }
   writeFileSync(file, original.replace('%TO.P,D1,1*%',
@@ -192,13 +200,19 @@ test('keeps unrelated flash evidence when a layer has arcs or clear objects', t 
   assert.match(repainted.pad_warnings[0].message, /清除对象/);
 });
 
-test('clearance follows the arc sweep instead of marking all pads in its bounds', () => {
+test('clearance follows the arc sweep and records the affected pin and object in HTML', t => {
+  const work = mkdtempSync(join(tmpdir(), 'moonplacement-clear-html-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const html = join(work, 'report.html');
   const file = join(gerberExamples, 'arc-clearance.gbr');
-  const report = run([baseline, delivery, policy, file], 2);
+  const report = run([baseline, delivery, policy, file, '--html', html], 2);
   assert.equal(report.pad_status, 'incomplete');
   assert.equal(report.pad_checked, 4);
-  assert.deepEqual(report.pad_evidence.filter(({ evidence }) => evidence.status === 'unverified'),
-    [{ ref: 'C1', side: 'top', evidence: { status: 'unverified', reason: 'possible_clearance' } }]);
+  const unverified = report.pad_evidence.filter(({ evidence }) => evidence.status === 'unverified');
+  assert.deepEqual(unverified.map(({ ref, side, evidence }) => [ref, side, evidence.reason]),
+    [['C1', 'top', 'possible_clearance']]);
+  assert.equal(unverified[0].evidence.clearance.object.kind, 'arc');
+  assert.match(readFileSync(html, 'utf8'), /C1（顶面）.*引脚 1 中心 \(30, 10\) mm.*清除圆弧 #\d+/);
   const u3 = report.pad_evidence.find(({ ref }) => ref === 'U3').evidence;
   assert.equal(u3.status, 'by_reference');
   assert.equal(u3.within_tolerance, true);
@@ -208,8 +222,9 @@ test('clearance follows the arc sweep instead of marking all pads in its bounds'
 test('clears the copper in an arc region while preserving a pad inside its cut-in', () => {
   const report = run([baseline, delivery, policy, join(gerberExamples, 'region-cut-in.gbr')], 2);
   assert.equal(report.pad_checked, 4);
-  assert.deepEqual(report.pad_evidence.filter(({ evidence }) => evidence.status === 'unverified'),
-    [{ ref: 'C1', side: 'top', evidence: { status: 'unverified', reason: 'possible_clearance' } }]);
+  assert.deepEqual(report.pad_evidence.filter(({ evidence }) => evidence.status === 'unverified')
+    .map(({ ref, side, evidence }) => [ref, side, evidence.reason, evidence.clearance.object.kind]),
+    [['C1', 'top', 'possible_clearance', 'region']]);
   assert.equal(report.pad_evidence.find(({ ref }) => ref === 'D1').evidence.within_tolerance, true);
 });
 

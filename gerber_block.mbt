@@ -150,7 +150,22 @@ fn flash_block(
       }
       seen_here[key] = true
     }
-    state.emit({ kind, dark, refdes, block_instance: instance, }, source)
+    let pin = if item.refdes is None && refdes is Some(_) {
+      state.pin_name
+    } else {
+      item.pin
+    }
+    state.emit(
+      {
+        kind,
+        dark,
+        refdes,
+        pin,
+        statement_number: item.statement_number,
+        block_instance: instance,
+      },
+      source,
+    )
   }
   for key, _ in seen_here {
     state.block_seen_refs[key] = true

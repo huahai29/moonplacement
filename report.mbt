@@ -51,6 +51,31 @@ fn escape_html(text : String) -> String {
 }
 
 ///|
+fn clearance_description(evidence : Json) -> String {
+  let description = "焊盘可能受后绘制的清除对象影响"
+  guard json_get(evidence, "clearance") is Some(clearance) &&
+    json_get(clearance, "pad") is Some(pad) &&
+    json_get(clearance, "object") is Some(object) else {
+    return description
+  }
+  let kind = match json_string(object, "kind") {
+    "flash" => "闪光"
+    "line" => "线段"
+    "arc" => "圆弧"
+    "region" => "区域"
+    _ => "图形"
+  }
+  let pin = json_string(pad, "pin")
+  let label = if pin.is_empty() {
+    "焊盘"
+  } else {
+    "引脚 " + escape_html(pin)
+  }
+  let location = "(\{json_double(pad, "x_mm")}, \{json_double(pad, "y_mm")}) mm"
+  "\{description}。\{label} 中心 \{location}；清除\{kind} #\{json_int(object, "object_number")}（Gerber 命令 #\{json_int(object, "statement_number")}）。"
+}
+
+///|
 fn marker_color(
   reference : String,
   problems : Map[String, Bool],
@@ -241,8 +266,7 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
           match json_string(evidence, "reason") {
             "repeated_reference" =>
               "拼板中位号重复，请按单元拆分后核验"
-            "possible_clearance" =>
-              "焊盘可能受后绘制的清除对象影响"
+            "possible_clearance" => clearance_description(evidence)
             _ => "缺少可用的焊盘证据"
           }
         _ => continue
