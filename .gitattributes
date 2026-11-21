@@ -1,1 +1,4 @@
 * text=auto eol=lf
+
+# Keep the pinned upstream hardware fixture byte-for-byte.
+/examples/hardware/ht42b534/HT42B534USB2UART.kicad_pcb -text

@@ -50,6 +50,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends kicad
           node tests/kicad-export.mjs
+      - name: 开源实板拼板验收
+        run: node tests/kicad-panel.mjs
       - name: 独立 Gerber 铜层对照
         run: |
           python -m pip install pygerber==2.4.3
@@ -63,4 +65,5 @@ jobs:
             _build/kicad-evidence
             _build/gerber-comparison
             _build/release-consumer/unpacked.json
+            _build/real-panel
           if-no-files-found: ignore
