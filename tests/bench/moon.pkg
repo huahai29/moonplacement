@@ -1,0 +1,7 @@
+import {
+  "huahai29/moonplacement" @mp,
+}
+
+pkgtype(kind: "executable")
+
+supported_targets = "js"

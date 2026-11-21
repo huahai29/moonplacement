@@ -79,6 +79,11 @@ jobs:
       - name: 开源实板拼板验收
         if: runner.os == 'Linux'
         run: node tests/kicad-panel.mjs
+      - name: 记录拼板性能及核验结果
+        if: runner.os == 'Linux'
+        run: |
+          moon build --target js --release
+          MOONPLACEMENT_BENCH_SAMPLES=3 node tests/bench-panels.mjs
       - name: 独立 Gerber 铜层对照
         if: runner.os == 'Linux'
         run: |
@@ -94,6 +99,7 @@ jobs:
             _build/gerber-comparison
             _build/release-consumer/unpacked.json
             _build/real-panel
+            _build/panel-benchmark.json
           if-no-files-found: ignore
 
   compare-platforms:

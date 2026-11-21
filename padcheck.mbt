@@ -125,39 +125,40 @@ fn refs_with_possible_clearance(
   document : GerberDocument,
 ) -> Map[String, ClearanceWitness] {
   let affected : Map[String, ClearanceWitness] = Map([])
-  let later_clear : Array[(Int32, GerberFeature, GerberBounds)] = []
+  let items : Array[ClearObject] = []
+  for index, feature in document.features {
+    if !feature.dark && gerber_object_bounds(feature.kind) is Some(bounds) {
+      items.push({ index, feature, bounds, })
+    }
+  }
+  if items.is_empty() {
+    return affected
+  }
+  let tree = clearance_index(items)
   let count = document.features.length()
   for i in 0..<count {
     let index = count - i - 1
     let feature = document.features[index]
-    if !feature.dark {
-      if gerber_object_bounds(feature.kind) is Some(bounds) {
-        later_clear.push((index, feature, bounds))
-      }
-    } else if !later_clear.is_empty() &&
+    if feature.dark &&
       feature.kind is Flash(shape, center) &&
-      feature.refdes is Some(refdes) &&
-      !document.repeated_refs.contains(designator(refdes)) {
-      let radius = shape.bounding_radius()
-      let pad_bounds = bounds_at(center, radius)
+      feature.refdes is Some(refdes) {
       let key = designator(refdes)
-      if affected.contains(key) {
+      if document.repeated_refs.contains(key) || affected.contains(key) {
         continue
       }
-      for (clear_index, clear, clear_bounds) in later_clear {
-        if clear_bounds.overlaps(pad_bounds) &&
-          clear_may_cover(clear.kind, center, radius) {
-          affected[key] = {
-            pad_index: index + 1,
-            pad_statement: feature.statement_number,
-            pin: feature.pin,
-            pad_center: center,
-            clear_index: clear_index + 1,
-            clear_statement: clear.statement_number,
-            clear_kind: gerber_kind_name(clear.kind),
-            clear_bounds,
-          }
-          break
+      let radius = shape.bounding_radius()
+      let pad_bounds = bounds_at(center, radius)
+      if find_clearance(tree, pad_bounds, center, radius, index, None)
+        is Some(clear) {
+        affected[key] = {
+          pad_index: index + 1,
+          pad_statement: feature.statement_number,
+          pin: feature.pin,
+          pad_center: center,
+          clear_index: clear.index + 1,
+          clear_statement: clear.feature.statement_number,
+          clear_kind: gerber_kind_name(clear.feature.kind),
+          clear_bounds: clear.bounds,
         }
       }
     }
