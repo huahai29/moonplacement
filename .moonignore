@@ -1,0 +1,11 @@
+/_build/
+/target/
+/.git/
+/.github/
+/.mooncakes/
+/node_modules/
+*.generated.mbti
+__pycache__/
+**/credentials.json
+.env
+.env.*

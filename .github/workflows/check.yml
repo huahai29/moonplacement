@@ -37,6 +37,14 @@ jobs:
         run: |
           moon build --target js
           node --test tests/cli.test.mjs
+      - name: 验证归档可被独立项目使用
+        run: |
+          moon package --frozen
+          mkdir -p _build/unpacked-release
+          unzip -q _build/publish/huahai29-moonplacement-*.zip -d _build/unpacked-release
+          module="$(find _build/unpacked-release -type f -name moon.mod -print -quit)"
+          test -n "$module"
+          node tests/release-consumer.mjs --unpacked "$(dirname "$module")"
       - name: 复核 KiCad 实际导出
         run: |
           sudo apt-get update -qq
@@ -54,4 +62,5 @@ jobs:
           path: |
             _build/kicad-evidence
             _build/gerber-comparison
+            _build/release-consumer/unpacked.json
           if-no-files-found: ignore

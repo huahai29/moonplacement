@@ -38,6 +38,8 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 
 ## 可复现案例
 
+[0.1.0 版本与验收](docs/release-0.1.0.md)把库安装、实导出和拼板复现放在一起。直接在 MoonBit 项目中使用时，可运行 `moon add huahai29/moonplacement@0.1.0`。
+
 - [KiCad 双面实导出](examples/README.md#铜层实导出验证)：两张表都把底面 C7 偏移了 0.30 mm。两表结果为 `pass`，加入原铜层后，报告指出 C7 的偏移。
 - [拼板单元核对](examples/README.md#核对拼板单元)：用 `--panel-cell 2,2` 核对第 2 行第 2 列。2×2 样例只有这个单元的 D1 偏移 0.30 mm。
 - [块光圈与 PyGerber 对照](docs/gerber-acceptance.md#块光圈与独立对照)：核验展开前后的拼板几何，并对比 KiCad 实际导出铜层的采样点。

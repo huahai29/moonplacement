@@ -1,0 +1,32 @@
+/// Run in a separate module that imports "huahai29/moonplacement" @mp.
+fn main {
+  let baseline = @mp.read_placements(
+    #| Ref,Val,Package,PosX,PosY,Rot,Side
+    #| A1,anchor,0603,0,0,0,top
+    #| A2,anchor,0603,10,0,0,top
+    #| A3,anchor,0603,0,10,0,top
+    #| D1,LED,0603,4,4,0,top
+    ,
+    source="design",
+  ) catch { _ => abort("cannot read the design placements") }
+  let delivery = @mp.read_placements(
+    #| Ref,Val,Package,PosX,PosY,Rot,Side
+    #| A1,anchor,0603,0,0,0,top
+    #| A2,anchor,0603,10,0,0,top
+    #| A3,anchor,0603,0,10,0,top
+    #| D1,LED,0603,4.3,4,0,top
+    ,
+    source="delivery",
+  ) catch { _ => abort("cannot read the delivery placements") }
+  let policy = @mp.read_policy(
+    #| {
+    #|   "baseline": {"unit":"mm","bottom_x":"direct","angle_sign":1,"top_angle_offset_deg":0,"bottom_angle_offset_deg":0},
+    #|   "delivery": {"unit":"mm","bottom_x":"direct","angle_sign":1,"top_angle_offset_deg":0,"bottom_angle_offset_deg":0},
+    #|   "anchors": ["A1","A2","A3"], "rotation": "0",
+    #|   "position_tolerance_mm": 0.05, "angle_tolerance_deg": 1, "anchor_tolerance_mm": 0.02
+    #| }
+    ,
+  ) catch { _ => abort("cannot read the policy") }
+  let result = @mp.audit(baseline, delivery, policy)
+  println(result.report.stringify())
+}
