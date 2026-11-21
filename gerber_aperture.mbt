@@ -79,6 +79,18 @@ fn hole_clearance(shape : Shape, hole : Point) -> Double {
     }
     // Standard polygon holes are concentric.
     Polygon(radius, sides) => radius * @math.cos(@math.PI / sides.to_double())
+    Outline(points) => {
+      if !polygon_contains(points, hole) {
+        return 0.0
+      }
+      let mut clearance = magnitude(difference(hole, points[0]))
+      for i in 0..<points.length() {
+        clearance = clearance.min(
+          segment_distance(hole, points[i], points[(i + 1) % points.length()]),
+        )
+      }
+      clearance
+    }
     _ => 0.0
   }
 }
@@ -215,7 +227,9 @@ fn macro_aperture(
     primitives.push(values)
   }
   match primitives {
-    [_, [1.0, 0.0, ..]] => ()
+    [_, [1.0, 0.0, ..], .. rest] if rest
+      .iter()
+      .all(cut => cut is [1.0, 0.0, ..]) => ()
     [_, _, ..] => return rounded_macro(name, primitives, unit, source)
     _ => ()
   }
@@ -251,6 +265,43 @@ fn macro_aperture(
       }
       (Rectangle(width, height), { x: x * unit, y: y * unit, }, angle)
     }
+    Some([4.0, 1.0, count, ..]) =>
+      outline_macro(primitives[0], count, unit, source, name)
+    Some([5.0, 1.0, sides, x, y, diameter, angle]) if sides >= 3.0 &&
+      sides <= 12.0 &&
+      sides == sides.to_int().to_double() &&
+      diameter > 0.0 =>
+      (
+        Polygon(diameter * unit * 0.5, sides.to_int()),
+        { x: x * unit, y: y * unit, },
+        angle,
+      )
+    Some([20.0, 1.0, width, ax, ay, bx, by, angle]) if width > 0.0 => {
+      let dx = (bx - ax) * unit
+      let dy = (by - ay) * unit
+      let length = @math.hypot(dx, dy)
+      let center : Point = {
+        x: (ax * 0.5 + bx * 0.5) * unit,
+        y: (ay * 0.5 + by * 0.5) * unit,
+      }
+      (
+        transform_shape(
+          Rectangle(length, width * unit),
+          aperture_rotation(@math.atan2(dy, dx) * 180.0 / @math.PI),
+        ),
+        center,
+        angle,
+      )
+    }
+    Some([7.0, x, y, outer, inner, gap, angle]) if outer > inner &&
+      inner >= 0.0 &&
+      gap > 0.0 &&
+      gap < outer / 2.0.sqrt() =>
+      (
+        Thermal(outer * unit * 0.5, inner * unit * 0.5, gap * unit * 0.5),
+        { x: x * unit, y: y * unit, },
+        angle,
+      )
     _ =>
       raise InvalidGerber(
         source,
@@ -258,6 +309,17 @@ fn macro_aperture(
       )
   }
   let rotation = aperture_rotation(angle)
+  if primitives.length() > 2 {
+    return punched_macro(
+      shape,
+      rotation.apply(offset),
+      angle,
+      primitives[1:],
+      unit,
+      source,
+      name,
+    )
+  }
   if primitives.get(1) is Some([1.0, 0.0, diameter, x, y, .. trailing]) &&
     trailing.length() <= 1 {
     let clear = aperture_rotation(trailing.get(0).unwrap_or(0.0)).apply({

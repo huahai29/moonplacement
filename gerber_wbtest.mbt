@@ -107,6 +107,51 @@ test "regions become filled polygons" {
 }
 
 ///|
+test "region cut-in keeps a circular hole while separate contours add copper" {
+  let outside = "%FSLAX46Y46*%%MOMM*%G75*G36*X4000000Y0D02*X4000000Y3000000D01*" +
+    "X-4000000Y3000000D01*X-4000000Y-3000000D01*X4000000Y-3000000D01*X4000000Y0D01*" +
+    "X1000000Y0D01*G02*I-1000000J0D01*G01*X4000000Y0D01*"
+  let alone = parse_gerber(outside + "G37*M02*", source="arc cut-in")
+  assert_false(copper_at(alone, { x: 0.0, y: 0.0, }, 0.0))
+  assert_true(copper_at(alone, { x: 0.8, y: 0.8, }, 0.0))
+  assert_false(copper_at(alone, { x: 0.6, y: 0.6, }, 0.0))
+  assert_true(copper_at(alone, { x: 0.5, y: 1.0, }, 0.0))
+  let circles = "X500000Y0D02*G03*I-500000J0D01*G01*"
+  let union = parse_gerber(outside + circles + "G37*M02*", source="arc cut-in")
+  assert_true(copper_at(union, { x: 0.0, y: 0.0, }, 0.0))
+  assert_false(copper_at(union, { x: 0.7, y: 0.0, }, 0.0))
+  let clear_then_repaint = parse_gerber(
+    outside.replace(old="G36*", new="%LPC*%G36*") +
+    "G37*%LPD*%" +
+    "G36*X500000Y0D02*G03*I-500000J0D01*G37*M02*",
+    source="repaint after clearance",
+  )
+  assert_true(copper_at(clear_then_repaint, { x: 0.0, y: 0.0, }, 0.0))
+  assert_false(copper_at(clear_then_repaint, { x: 0.8, y: 0.8, }, 0.0))
+}
+
+///|
+test "regions reject a broken outline and missing D02 or G36" {
+  for
+    (commands, reason) in [
+      (
+        "G36*X0Y0D02*X1000000Y0D01*X1000000Y1000000D01*X0Y1000000D01*G37*", "闭合",
+      ),
+      ("X0Y0D02*G36*X1000000Y1000000D01*G37*", "D02"),
+      ("G37*", "G36"),
+      ("G36*%LPC*%G37*", "极性"),
+    ] {
+    let result = Ok(
+      parse_gerber("%FSLAX46Y46*%%MOMM*%" + commands, source="invalid region"),
+    ) catch {
+      error => Err(error)
+    }
+    guard! result is Err(InvalidGerber("invalid region", detail))
+    assert_true(detail.contains(reason))
+  }
+}
+
+///|
 test "unsupported aperture template reports an error" {
   let result = Ok(parse_gerber("%MOMM*%%ADD10Q,1.0*%", source="fixture")) catch {
     error => Err(error)
@@ -263,6 +308,72 @@ test "invalid standard holes and macro cuts are refused instead of approximated"
     }
     guard! result is Err(InvalidGerber("bad hole", message))
     assert_true(message.contains(reason))
+  }
+}
+
+///|
+fn macro_flash(definition : String) -> String {
+  "%FSLAX46Y46*%%MOMM*%%AMTest*" + definition + "*%%ADD10Test*%D10*X0Y0D03*M02*"
+}
+
+///|
+test "outline macro computes a non central centroid and accepts concave outlines" {
+  let doc = parse_gerber(
+    macro_flash("4,1,6,0,0,4,0,4,1,1,1,1,3,0,3,0,0,90"),
+    source="L pad",
+  )
+  guard! gerber_pads(doc) is [pad]
+  assert_eq(pad.area, 6.0)
+  assert_true((pad.center.x + 1.0).abs() < 1.0e-12)
+  assert_true((pad.center.y - 1.5).abs() < 1.0e-12)
+  assert_true(copper_at(doc, { x: -0.5, y: 3.0, }, 0.0))
+  assert_false(copper_at(doc, { x: -1.5, y: 3.0, }, 0.0))
+}
+
+///|
+test "thermal, polygon and vector macros use their distinct geometry" {
+  let doc = parse_gerber(macro_flash("7,0,0,4,2,1,0"), source="thermal")
+  guard! gerber_pads(doc) is [thermal]
+  // Independent polar integral over one quadrant, including the axial gaps.
+  assert_true((thermal.area - 5.335356442250777).abs() < 1.0e-10)
+  assert_true(copper_at(doc, { x: 1.0, y: 1.0, }, 0.0))
+  assert_false(copper_at(doc, { x: 0.0, y: 1.5, }, 0.0))
+  assert_false(copper_at(doc, { x: 0.6, y: 0.6, }, 0.0))
+  let polygon = parse_gerber(macro_flash("5,1,4,0,0,4,45"), source="polygon")
+  guard! gerber_pads(polygon) is [square]
+  assert_true((square.area - 8.0).abs() < 1.0e-12)
+  assert_true(copper_at(polygon, { x: 1.3, y: 1.3, }, 0.0))
+  let vector = parse_gerber(macro_flash("20,1,0.5,0,0,2,0,90"), source="vector")
+  guard! gerber_pads(vector) is [line]
+  assert_eq(line.area, 1.0)
+  assert_true((line.center.y - 1.0).abs() < 1.0e-12)
+  assert_true(copper_at(vector, { x: 0.0, y: 1.95, }, 0.0))
+  assert_false(copper_at(vector, { x: 0.0, y: 2.05, }, 0.0))
+}
+
+///|
+test "multiple clear circles subtract disjoint area and shift the copper centroid" {
+  let doc = parse_gerber(
+    macro_flash("21,1,6,4,0,0,0*1,0,1,-1,0*1,0,2,1,0"),
+    source="holes",
+  )
+  guard! gerber_pads(doc) is [pad]
+  let area = 24.0 - 1.25 * @math.PI
+  assert_true((pad.area - area).abs() < 1.0e-12)
+  assert_true((pad.center.x + 0.75 * @math.PI / area).abs() < 1.0e-12)
+  assert_false(copper_at(doc, { x: -1.0, y: 0.0, }, 0.0))
+  assert_false(copper_at(doc, { x: 1.0, y: 0.0, }, 0.0))
+  assert_true(copper_at(doc, { x: 0.0, y: 1.0, }, 0.0))
+  for
+    (definition, reason) in [
+      ("21,1,6,4,0,0,0*1,0,2,0,0*1,0,2,1,0", "相交"),
+      ("4,1,4,0,0,2,2,0,2,2,0,0,0,0", "自交"),
+    ] {
+    let result = Ok(parse_gerber(macro_flash(definition), source="bad macro")) catch {
+      error => Err(error)
+    }
+    guard! result is Err(InvalidGerber("bad macro", detail))
+    assert_true(detail.contains(reason))
   }
 }
 

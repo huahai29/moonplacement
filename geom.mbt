@@ -20,6 +20,12 @@ pub enum Shape {
   /// Solid shape, outer center, hole center (both relative to the copper
   /// centroid), and hole radius in mm.
   RoundHole(Shape, Point, Point, Double)
+  /// A simple polygon relative to its centroid.
+  Outline(Array[Point])
+  /// Centred thermal: outer radius, inner radius and half gap.
+  Thermal(Double, Double, Double)
+  /// Solid shape and round holes, positioned relative to the copper centroid.
+  Punched(Shape, Point, Array[(Point, Double)])
 }
 
 ///|
@@ -37,6 +43,16 @@ pub fn Shape::area(self : Shape) -> Double {
       0.5 * count * radius * radius * @math.sin(2.0 * @math.PI / count)
     }
     RoundedOutline(vertices, radius) => rounded_outline_area(vertices, radius)
+    Outline(vertices) => polygon_area(vertices).abs()
+    Thermal(outer, inner, gap) =>
+      4.0 * (thermal_quadrant(outer, gap) - thermal_quadrant(inner, gap))
+    Punched(shape, _, holes) => {
+      let mut area = shape.area()
+      for hole in holes {
+        area -= @math.PI * hole.1.max(0.0) * hole.1.max(0.0)
+      }
+      area
+    }
     RoundHole(shape, _, _, radius) =>
       shape.area() - @math.PI * radius.max(0.0) * radius.max(0.0)
     Transformed(shape, matrix) => shape.area() * matrix.determinant().abs()
@@ -60,28 +76,38 @@ fn Shape::bounding_radius(self : Shape) -> Double {
     Transformed(shape, matrix) => shape.bounding_radius() * matrix.scale()
     RoundHole(shape, outer, _, _) =>
       shape.bounding_radius() + @math.hypot(outer.x, outer.y)
+    Punched(shape, outer, _) => shape.bounding_radius() + magnitude(outer)
+    Thermal(outer, _, _) => outer
+    Outline(vertices) => {
+      let mut radius = 0.0
+      for p in vertices {
+        radius = radius.max(magnitude(p))
+      }
+      radius
+    }
   }
 }
 
 ///|
-/// World-space disk that the aperture does not paint, including under LPC.
-fn Shape::transparent_hole(self : Shape, center : Point) -> (Point, Double)? {
+/// Whether an entire disk lies within one of this aperture's transparent holes.
+fn Shape::hole_contains(self : Shape, point : Point, margin : Double) -> Bool {
   match self {
     RoundHole(_, _, hole, radius) =>
-      Some(({ x: center.x + hole.x, y: center.y + hole.y, }, radius))
-    Transformed(shape, matrix) => {
-      guard shape.transparent_hole({ x: 0.0, y: 0.0, }) is Some((hole, radius)) else {
-        return None
-      }
-      let offset = matrix.apply(hole)
-      Some(
-        (
-          { x: center.x + offset.x, y: center.y + offset.y, },
-          radius * matrix.scale(),
-        ),
+      magnitude(difference(point, hole)) + margin < radius
+    Punched(_, _, holes) =>
+      holes.any(hole => magnitude(difference(point, hole.0)) + margin < hole.1)
+    Transformed(shape, m) => {
+      let det = m.determinant()
+      det != 0.0 &&
+      shape.hole_contains(
+        {
+          x: (m.e * point.x - m.b * point.y) / det,
+          y: (m.a * point.y - m.d * point.x) / det,
+        },
+        margin / m.scale(),
       )
     }
-    _ => None
+    _ => false
   }
 }
 
@@ -208,6 +234,13 @@ pub fn Shape::expanded(self : Shape, amount : Double) -> Shape {
       RoundedOutline(vertices, radius + amount)
     RoundHole(shape, outer, hole, radius) =>
       RoundHole(shape.expanded(amount), outer, hole, radius - amount)
+    Punched(shape, outer, holes) =>
+      Punched(
+        shape.expanded(amount),
+        outer,
+        holes.map(hole => (hole.0, hole.1 - amount)),
+      )
+    Thermal(_, _, _) | Outline(_) => self
     Transformed(shape, matrix) =>
       Transformed(shape.expanded(amount / matrix.scale()), matrix)
   }
@@ -233,6 +266,16 @@ pub fn Shape::contains(self : Shape, center : Point, point : Point) -> Bool {
     RoundHole(shape, outer, hole, radius) =>
       (radius <= 0.0 || @math.hypot(dx - hole.x, dy - hole.y) >= radius) &&
       shape.contains(outer, { x: dx, y: dy, })
+    Punched(shape, outer, holes) => {
+      let p : Point = { x: dx, y: dy, }
+      shape.contains(outer, p) &&
+      !holes.any(hole => magnitude(difference(p, hole.0)) < hole.1)
+    }
+    Thermal(outer, inner, gap) => {
+      let radial = @math.hypot(dx, dy)
+      dx.abs() >= gap && dy.abs() >= gap && radial >= inner && radial <= outer
+    }
+    Outline(vertices) => polygon_contains(vertices, { x: dx, y: dy, })
     Transformed(shape, matrix) => {
       let determinant = matrix.determinant()
       if determinant == 0.0 {

@@ -14,9 +14,7 @@ pub enum GerberKind {
   /// A directed circular stroke outside a region.
   Arc(GerberArc)
   /// A filled region built from `G36`/`G37`.
-  Region(Array[Point])
-  /// Conservative bounds for a region containing an arc.
-  Approximate(GerberBounds)
+  Region(GerberRegion)
 }
 
 ///|
@@ -66,7 +64,9 @@ priv struct GerberState {
   mut quadrant_mode : Int32
   mut region : Bool
   mut region_points : Array[Point]
-  mut region_arc_bounds : GerberBounds?
+  mut region_error : Double
+  mut region_contours : Array[GerberContour]
+  mut region_vertices : Int32
   mut refdes : String?
   mut pin_refdes : String?
   features : Array[GerberFeature]
@@ -430,27 +430,23 @@ fn current_aperture(
 }
 
 ///|
-fn flush_region(state : GerberState) -> Unit {
-  state.region = false
-  if state.region_arc_bounds is Some(arc_bounds) {
-    let mut bounds = arc_bounds
-    for point in state.region_points {
-      bounds = bounds.union(bounds_at(point, 0.0))
-    }
-    state.features.push({
-      kind: Approximate(bounds),
-      dark: state.dark,
-      refdes: feature_refdes(state),
-    })
-  } else if state.region_points.length() >= 3 {
-    state.features.push({
-      kind: Region(state.region_points),
-      dark: state.dark,
-      refdes: feature_refdes(state),
-    })
+fn flush_region(state : GerberState, source : String) -> Unit raise GerberError {
+  if !state.region {
+    raise InvalidGerber(source, "G37 前缺少 G36")
   }
-  state.region_points = []
-  state.region_arc_bounds = None
+  close_region_contour(state, source)
+  let contours = state.region_contours
+  let mut bounds = contours[0].bounds
+  for contour in contours {
+    bounds = bounds.union(contour.bounds)
+  }
+  state.features.push({
+    kind: Region({ contours, bounds, }),
+    dark: state.dark,
+    refdes: feature_refdes(state),
+  })
+  state.region = false
+  state.region_contours = []
 }
 
 ///|
@@ -478,11 +474,16 @@ fn process_operation(
           2 => state.interpolation = 2
           3 => state.interpolation = 3
           36 => {
+            if state.region {
+              raise InvalidGerber(source, "铜区内不能嵌套 G36")
+            }
             state.region = true
             state.region_points = []
-            state.region_arc_bounds = None
+            state.region_error = 0.0
+            state.region_contours = []
+            state.region_vertices = 0
           }
-          37 => flush_region(state)
+          37 => flush_region(state, source)
           70 | 71 | 91 =>
             raise InvalidGerber(
               source, "不支持旧版单位或增量坐标指令，请以 FS 和 MO 声明",
@@ -503,6 +504,9 @@ fn process_operation(
       'D' => {
         let code = parse_code(word, source)
         if code >= 10 {
+          if state.region {
+            raise InvalidGerber(source, "铜区轮廓中不能切换光圈")
+          }
           state.current_aperture = code
         } else if code >= 1 && code <= 3 {
           operation = code
@@ -553,8 +557,12 @@ fn process_operation(
         None
       }
       if state.region {
-        state.region_points.push(start)
-        state.region_points.push(target)
+        if state.region_points.is_empty() {
+          raise InvalidGerber(
+            source, "铜区轮廓必须先用 D02 指定起点",
+          )
+        }
+        let previous = state.region_points.length()
         if offset is Some(offset) {
           let arc = make_gerber_arc(
             start,
@@ -564,19 +572,15 @@ fn process_operation(
             0.0,
             source,
           )
-          if state.region_arc_bounds is None &&
-            !state.warnings.contains(
-              "含圆弧的区域使用保守包围范围",
-            ) {
-            state.warnings.push("含圆弧的区域使用保守包围范围")
-          }
-          let bounds = arc.bounds()
-          state.region_arc_bounds = Some(
-            match state.region_arc_bounds {
-              Some(previous) => previous.union(bounds)
-              None => bounds
-            },
+          state.region_error = state.region_error.max(
+            append_region_arc(state.region_points, arc, target),
           )
+        } else {
+          state.region_points.push(target)
+        }
+        state.region_vertices += state.region_points.length() - previous
+        if state.region_vertices > 200000 {
+          raise InvalidGerber(source, "铜区轮廓超过 200000 个顶点")
         }
       } else {
         let aperture = current_aperture(state, source)
@@ -610,8 +614,11 @@ fn process_operation(
       }
     }
     2 =>
-      if state.region && !state.region_points.is_empty() {
-        raise InvalidGerber(source, "暂不支持多轮廓区域")
+      if state.region {
+        if !state.region_points.is_empty() {
+          close_region_contour(state, source)
+        }
+        state.region_points.push(target)
       }
     3 => {
       if state.region {
@@ -651,6 +658,18 @@ fn process_statement(
   let chars = to_chars(statement)
   if chars.length() == 0 {
     return
+  }
+  if state.region &&
+    !(chars[0] == 'G' ||
+    chars[0] == 'D' ||
+    chars[0] == 'X' ||
+    chars[0] == 'Y' ||
+    chars[0] == 'I' ||
+    chars[0] == 'J') {
+    raise InvalidGerber(
+      source,
+      "铜区内不能改变光圈、极性或属性：\{statement}",
+    )
   }
   if chars.length() >= 2 {
     match (chars[0], chars[1]) {
@@ -733,10 +752,8 @@ fn process_statement(
 ///|
 /// Parse an RS-274X Gerber file.
 ///
-/// Reads standard apertures, selected macros, flashes, strokes, single-contour
-/// regions, polarity and X2 component/pin attributes. G75 circular strokes
-/// retain their geometry; arc segments inside a region still produce a warning
-/// and conservative bounds.
+/// Reads standard apertures, selected macros, flashes, circular strokes,
+/// filled regions, polarity and X2 component/pin attributes.
 pub fn parse_gerber(
   text : String,
   source~ : String,
@@ -757,7 +774,9 @@ pub fn parse_gerber(
     quadrant_mode: 0,
     region: false,
     region_points: [],
-    region_arc_bounds: None,
+    region_error: 0.0,
+    region_contours: [],
+    region_vertices: 0,
     refdes: None,
     pin_refdes: None,
     features: [],

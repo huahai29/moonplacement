@@ -4,7 +4,7 @@
 
 MoonPlacement 用来复核双面 PCB 送厂前的装配文件。输入同一版板子的设计坐标表和送厂坐标表，可以查漏件、错面、偏位和角度偏差。加入 Gerber 铜层后，还能借助焊盘位置核对两张表里可能共有的错误。
 
-**Gerber 目标为完整读取并求值 2024.05 现行图层语义。** 当前可核验带圆孔的标准光圈、KiCad 常见的多图元圆角焊盘，以及用圆形清除图元开孔的部分光圈宏。规范覆盖与实测范围见下方验收表。
+**Gerber 目标为完整读取并求值 2024.05 现行图层语义。** 当前可核验带圆孔的标准光圈、KiCad 圆角与切角焊盘、热焊盘以及带多个透明圆孔的部分光圈宏。规范覆盖与实测范围见下方验收表。
 
 [示例与复现](examples/README.md) · [Gerber 2024.05 验收](docs/gerber-acceptance.md) · [配置与 JSON 报告](docs/audit.md)
 
@@ -44,7 +44,7 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 
 ## 铜层核对
 
-Gerber 与设计坐标表应使用同一原点和坐标方向。在配置文件参数后追加顶层 Gerber，需要核对底面时再追加底层 Gerber。清除圆弧按扫过的范围和线宽筛查，能排除未受影响的焊盘；含弧铜区仍用保守包围范围。[命令覆盖表](docs/gerber-acceptance.md#规范命令矩阵) · [圆弧清除对照](docs/gerber-acceptance.md#圆弧清除对照)
+Gerber 与设计坐标表应使用同一原点和坐标方向。在配置文件参数后追加顶层 Gerber，需要核对底面时再追加底层 Gerber。清除圆弧按扫过的范围和线宽筛查，能排除未受影响的焊盘；含弧铜区可区分实铜和通过折返路径围出的孔。[命令覆盖表](docs/gerber-acceptance.md#规范命令矩阵) · [圆弧清除对照](docs/gerber-acceptance.md#圆弧清除对照)
 
 D1 算例验证了参数化光圈宏的镜像、旋转和缩放。KiCad 双面板的 U3 则验证了倾斜的圆角矩形焊盘。[输入与验证方法](docs/gerber-acceptance.md#输入命令和实测输出)
 

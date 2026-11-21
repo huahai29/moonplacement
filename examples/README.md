@@ -42,11 +42,11 @@ moon build --target js
 node tests/kicad-export.mjs
 ```
 
-脚本用 KiCad 实际导出两份坐标表及顶、底 Gerber，再运行 MoonPlacement。顶层导出必须包含圆弧走线。KiCad 只用于生成验收数据，使用 MoonPlacement 核对已有文件时不用安装它。输出在 `_build/kicad-evidence/`，CI 也保存这份目录。
+脚本用 KiCad 实际导出两份坐标表及顶、底 Gerber，再运行 MoonPlacement。顶层导出必须包含圆弧走线，以及 R2 切角焊盘的轮廓宏。KiCad 只用于生成验收数据，使用 MoonPlacement 核对已有文件时不用安装它。输出在 `_build/kicad-evidence/`，CI 也保存这份目录。
 
 | 用例 | 预期结果 |
 | --- | --- |
-| 两种底面 X 约定的正常导出 | `pass`，6 颗按位号核验。顶面 U3 为倾斜的 `RoundRect` 宏焊盘，中心偏差小于 0.001 mm。底面 C7 归集为一组双焊盘 |
+| 两种底面 X 约定的正常导出 | `pass`，6 颗按位号核验。顶面 U3 为倾斜的 `RoundRect` 宏焊盘，中心偏差小于 0.001 mm。R2 的切角轮廓宏也按位号核验且中心偏差小于 0.001 mm。底面 C7 归集为一组双焊盘 |
 | 只有送厂表的 C7 偏移 0.30 mm | `different`，两表位置和铜层均指出底面 C7 |
 | 两份表的 C7 同时偏移 0.30 mm | 仅查两表为 `pass`，加入原铜层后为 `different`，唯一差异是 C7 的 `pad_offset` |
 

@@ -127,6 +127,24 @@ test('clearance follows the arc sweep instead of marking all pads in its bounds'
   assert.deepEqual(report.pad_differences, []);
 });
 
+test('clears the copper in an arc region while preserving a pad inside its cut-in', () => {
+  const report = run([baseline, delivery, policy, join(gerberExamples, 'region-cut-in.gbr')], 2);
+  assert.equal(report.pad_checked, 4);
+  assert.deepEqual(report.pad_evidence.filter(({ evidence }) => evidence.status === 'unverified'),
+    [{ ref: 'C1', side: 'top', evidence: { status: 'unverified', reason: 'possible_clearance' } }]);
+  assert.equal(report.pad_evidence.find(({ ref }) => ref === 'D1').evidence.within_tolerance, true);
+});
+
+test('two-hole aperture reports the transformed centroid of the remaining copper', () => {
+  const report = run([baseline, delivery, policy, join(gerberExamples, 'macro-two-holes.gbr')], 0);
+  const evidence = report.pad_evidence.find(({ ref }) => ref === 'D1').evidence;
+  const expected = 2 * Math.PI * (0.6 ** 2 * 0.8 - 0.4 ** 2) /
+    (15 - Math.PI * (0.4 ** 2 + 0.6 ** 2));
+  assert.equal(evidence.pad_count, 1);
+  assert.ok(Math.abs(evidence.distance_mm - expected) < 0.0001);
+  assert.deepEqual(report.pad_differences, []);
+});
+
 test('normalizes inches, origin shift and bottom X', () => {
   const report = run([baseline, delivery, policy], 0);
   assert.equal(report.schema_version, 3);

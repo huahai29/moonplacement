@@ -162,5 +162,51 @@
       }
     ],
     "pad_differences": []
+  },
+  "region-cut-in.gbr": {
+    "exit_code": 2,
+    "status": "indeterminate",
+    "pad_status": "incomplete",
+    "pad_checked": 4,
+    "pad_evidence": [
+      {
+        "ref": "C1",
+        "side": "top",
+        "evidence": {
+          "status": "unverified",
+          "reason": "possible_clearance"
+        }
+      },
+      {
+        "ref": "D1",
+        "side": "top",
+        "evidence": {
+          "status": "by_reference",
+          "pad_count": 1,
+          "distance_mm": 1.3926952288935033E-05,
+          "within_tolerance": true
+        }
+      }
+    ],
+    "pad_differences": []
+  },
+  "macro-two-holes.gbr": {
+    "exit_code": 0,
+    "status": "pass",
+    "pad_status": "complete",
+    "pad_checked": 5,
+    "pad_evidence": [
+      {
+        "ref": "D1",
+        "side": "top",
+        "evidence": {
+          "status": "by_reference",
+          "pad_count": 1,
+          "distance_mm": 0.06018088632349635,
+          "within_tolerance": true
+        }
+      }
+    ],
+    "pad_differences": []
   }
 }

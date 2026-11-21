@@ -34,6 +34,8 @@ const bottom = findLayer('Bot');
 const topText = readFileSync(top, 'utf8');
 assert.match(topText, /%AMRoundRect\*/);
 assert.match(topText, /%ADD\d+RoundRect,/);
+assert.match(topText, /%AM(?:Outline\d+P|FreePoly\d+)\*/);
+assert.match(topText, /%ADD\d+(?:Outline\d+P|FreePoly\d+),/);
 assert.match(topText, /%TO\.P,U3,1(?:,|\*)/);
 assert.match(topText, /G0[23]\*/);
 assert.match(topText, /[IJ][+-]?\d+[^*]*D01\*/);
@@ -98,6 +100,9 @@ for (const mirror of ['direct', 'negated']) {
   const rounded = report.pad_evidence.find(({ ref }) => ref === 'U3').evidence;
   assert.equal(rounded.pad_count, 1);
   assert.ok(rounded.distance_mm < 0.001);
+  const chamfered = report.pad_evidence.find(({ ref }) => ref === 'R2').evidence;
+  assert.equal(chamfered.pad_count, 1);
+  assert.ok(chamfered.distance_mm < 0.001);
   if (mirror === 'negated') negatedDelivery = delivery;
 }
 

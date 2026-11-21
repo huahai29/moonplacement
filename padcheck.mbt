@@ -73,32 +73,22 @@ fn gerber_object_bounds(kind : GerberKind) -> GerberBounds? {
       let radius = shape.bounding_radius()
       Some(bounds_at(start, radius).union(bounds_at(end, radius)))
     }
-    Approximate(bounds) => Some(bounds)
     Arc(arc) => Some(arc.bounds())
-    Region(points) => {
-      guard points.get(0) is Some(first) else { return None }
-      let mut bounds = bounds_at(first, 0.0)
-      for point in points {
-        bounds = bounds.union(bounds_at(point, 0.0))
-      }
-      Some(bounds)
-    }
+    Region(region) => Some(region.bounds)
   }
 }
 
 ///|
 fn in_flash_hole(kind : GerberKind, point : Point, margin : Double) -> Bool {
-  guard kind is Flash(shape, center) &&
-    shape.transparent_hole(center) is Some((hole, radius)) else {
-    return false
-  }
-  @math.hypot(point.x - hole.x, point.y - hole.y) + margin < radius
+  guard kind is Flash(shape, center) else { return false }
+  shape.hole_contains(difference(point, center), margin)
 }
 
 ///|
 fn clear_may_cover(kind : GerberKind, point : Point, margin : Double) -> Bool {
   match kind {
     Arc(arc) => arc.may_cover(point, margin)
+    Region(region) => region.may_cover(point, margin)
     _ => !in_flash_hole(kind, point, margin)
   }
 }
@@ -152,7 +142,7 @@ pub fn copper_at(
     }
     let contains = match feature.kind {
       Flash(shape, center) => shape.expanded(tolerance).contains(center, point)
-      Region(points) => polygon_contains(points, point)
+      Region(region) => region.covers(point)
       Arc(arc) => arc.covers(point, tolerance)
       _ => false
     }
