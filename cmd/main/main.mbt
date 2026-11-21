@@ -67,17 +67,6 @@ fn load_file(
 }
 
 ///|
-fn load_gerber(
-  path : String,
-) -> @placement.GerberDocument raise @placement.InputError {
-  let text = load_file(path, 8_388_608)
-  @placement.parse_gerber(text, source=path) catch {
-    @placement.InvalidGerber(field, message) =>
-      raise @placement.InvalidInput(field, message)
-  }
-}
-
-///|
 fn usage() -> String {
   "用法：moon run cmd/main --target js -- <基准.csv> <送厂.csv> <配置.json> [顶层.gbr] [底层.gbr] [--panel-cell 行,列] [--html 报告.html]"
 }
@@ -150,9 +139,14 @@ fn load_layer(
   cell : (Int32, Int32)?,
   reference~ : @placement.GerberDocument? = None,
 ) -> @placement.GerberDocument raise @placement.InputError {
-  let document = load_gerber(path)
-  guard cell is Some((row, column)) else { return document }
-  @placement.select_panel_cell(document, row~, column~, source=path, reference?) catch {
+  let text = load_file(path, 8_388_608)
+  try {
+    if cell is Some((row, column)) {
+      @placement.parse_gerber_cell(text, row~, column~, source=path, reference?)
+    } else {
+      @placement.parse_gerber(text, source=path)
+    }
+  } catch {
     @placement.InvalidGerber(field, message) =>
       raise @placement.InvalidInput(field, message)
   }

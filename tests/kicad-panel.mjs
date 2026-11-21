@@ -142,7 +142,24 @@ for (const { row, column, refs } of cells) {
   outcomes.at(-1).injected = { panel_ref: refs.D1, local_ref: 'D1', x_mm: 0.30,
     pad_distance_mm: common.pad_differences[0].distance_mm };
 }
+const largeLayers = srLayers.map((file, index) => {
+  const name = join(dir, index ? 'panel-sr-10x10-bottom.gbr' : 'panel-sr-10x10-top.gbr');
+  writeFileSync(name, readFileSync(file, 'utf8').replace('%SRX2Y2I40J32*%', '%SRX10Y10I40J32*%'));
+  return name;
+});
+const large = audit('sr-control-10-10', baseline, baseline, srPolicy, largeLayers,
+  ['--panel-cell', '10,10'], 0);
+assert.equal(large.pad_checked, scope.length);
+assert.equal(large.panel_cells.length, 2);
+assert.ok(large.panel_cells.every(cell => cell.row === 10 && cell.column === 10));
+const wrong10 = audit('sr-both-tables-wrong-10-10', join(dir, 'sr-wrong-2-2.csv'),
+  join(dir, 'sr-wrong-2-2.csv'), srPolicy, largeLayers, ['--panel-cell', '10,10'], 1);
+assert.deepEqual(wrong10.differences, []);
+assert.deepEqual(wrong10.pad_differences.map(item => [item.ref, item.kind]), [['D1', 'pad_offset']]);
+assert.ok(Math.abs(wrong10.pad_differences[0].distance_mm - 0.30) < 0.001);
+const largePanel = { row: 10, column: 10, status: large.status, checked: large.pad_checked,
+  injected: { ref: 'D1', x_mm: 0.30, pad_distance_mm: wrong10.pad_differences[0].distance_mm } };
 writeFileSync(join(dir, 'acceptance.json'), JSON.stringify({
-  kicad: version, source_sha256: sourceDigest, scoped_refs: scope, outcomes,
+  kicad: version, source_sha256: sourceDigest, scoped_refs: scope, outcomes, large_panel: largePanel,
 }, null, 2) + '\n');
-console.log(`KiCad ${version}: 4 native and 4 SR controls passed; row 2 column 2 D1 moved 0.30 mm`);
+console.log(`KiCad ${version}: 4 native and 5 SR controls passed; D1 offset detected in cells (2,2) and (10,10)`);

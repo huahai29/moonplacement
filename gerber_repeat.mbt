@@ -5,12 +5,23 @@ priv struct GerberRepeat {
   dx : Double
   dy : Double
   features : Array[GerberFeature]
+  budget_multiplier : Int32
   mut cost : Int32
 }
 
 ///|
 fn translate_point(point : Point, offset : Point) -> Point {
   { x: point.x + offset.x, y: point.y + offset.y, }
+}
+
+///|
+fn repeat_offset(
+  dx : Double,
+  dy : Double,
+  column : Int32,
+  row : Int32,
+) -> Point {
+  { x: (column - 1).to_double() * dx, y: (row - 1).to_double() * dy, }
 }
 
 ///|
@@ -44,6 +55,17 @@ fn GerberKind::translated(self : GerberKind, offset : Point) -> GerberKind {
 }
 
 ///|
+fn repeat_bounds_at(kind : GerberKind, offset : Point) -> GerberBounds? {
+  // Region bounds already enclose their contour vertices; do not copy the
+  // vertices of cells that are being checked for separation and discarded.
+  if kind is Region(region) {
+    Some(region.bounds.translated(offset))
+  } else {
+    gerber_object_bounds(kind.translated(offset))
+  }
+}
+
+///|
 fn GerberState::emit(
   self : GerberState,
   feature : GerberFeature,
@@ -58,7 +80,7 @@ fn GerberState::emit(
     None => self.features.push(feature)
     Some(repeat) => {
       repeat.cost += feature_cost(feature)
-      if repeat.cost > self.repeat_budget / (repeat.columns * repeat.rows) {
+      if repeat.cost > self.repeat_budget / repeat.budget_multiplier {
         raise InvalidGerber(
           source, "SR 展开超出 200000 个对象及轮廓顶点的累计上限",
         )
@@ -83,7 +105,7 @@ fn parse_repeat(
       raise InvalidGerber(source, "SR 结束指令前没有打开步进重复")
     }
     let copies = repeat.columns * repeat.rows
-    state.repeat_budget -= repeat.cost * copies
+    state.repeat_budget -= repeat.cost * repeat.budget_multiplier
     if !repeat.features.is_empty() {
       if copies > 1 {
         let mut footprint : GerberBounds? = None
@@ -107,31 +129,39 @@ fn parse_repeat(
           })
         }
       }
-      for x in 0..<repeat.columns {
-        for y in 0..<repeat.rows {
-          let offset : Point = {
-            x: x.to_double() * repeat.dx,
-            y: y.to_double() * repeat.dy,
-          }
-          for item in repeat.features {
-            let kind = if x == 0 && y == 0 {
-              item.kind
-            } else {
-              item.kind.translated(offset)
+      if state.keep_panel_base && copies > 1 {
+        if state.panel_base is Some(_) {
+          raise InvalidGerber(source, single_grid_message)
+        }
+        let start = state.features.length()
+        for item in repeat.features {
+          state.features.push(item)
+        }
+        state.panel_base = Some((start, state.features.length()))
+      } else {
+        for x in 0..<repeat.columns {
+          for y in 0..<repeat.rows {
+            let offset = repeat_offset(repeat.dx, repeat.dy, x + 1, y + 1)
+            for item in repeat.features {
+              let kind = if x == 0 && y == 0 {
+                item.kind
+              } else {
+                item.kind.translated(offset)
+              }
+              if gerber_object_bounds(kind) is Some(bounds) &&
+                (bounds.upper.x.is_inf() || bounds.upper.y.is_inf()) {
+                raise InvalidGerber(
+                  source, "SR 平移后的几何坐标超出范围",
+                )
+              }
+              if copies > 1 &&
+                item.dark &&
+                kind is Flash(_, _) &&
+                item.refdes is Some(refdes) {
+                state.repeated_refs[designator(refdes)] = true
+              }
+              state.features.push({ ..item, kind, })
             }
-            if gerber_object_bounds(kind) is Some(bounds) &&
-              (bounds.upper.x.is_inf() || bounds.upper.y.is_inf()) {
-              raise InvalidGerber(
-                source, "SR 平移后的几何坐标超出范围",
-              )
-            }
-            if copies > 1 &&
-              item.dark &&
-              kind is Flash(_, _) &&
-              item.refdes is Some(refdes) {
-              state.repeated_refs[designator(refdes)] = true
-            }
-            state.features.push({ ..item, kind, })
           }
         }
       }
@@ -174,5 +204,14 @@ fn parse_repeat(
       source, "SR 步长必须非负，且平移量必须可计算",
     )
   }
-  state.repeat = Some({ columns, rows, dx, dy, features: [], cost: 0, })
+  let budget_multiplier = if state.keep_panel_base { 1 } else { columns * rows }
+  state.repeat = Some({
+    columns,
+    rows,
+    dx,
+    dy,
+    features: [],
+    budget_multiplier,
+    cost: 0,
+  })
 }

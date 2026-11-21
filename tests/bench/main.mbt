@@ -19,10 +19,16 @@ fn main {
     _ => abort("failed to read benchmark policy")
   }
   let gerber = input(2)
-  let panel = input(3) == "panel"
+  let mode = input(3)
   warmup_gc()
   let start = now()
-  let parsed_document = Ok(@mp.parse_gerber(gerber, source="benchmark")) catch {
+  let parsed_document = Ok(
+    if mode == "panel-direct" {
+      @mp.parse_gerber_cell(gerber, row=1, column=1, source="benchmark")
+    } else {
+      @mp.parse_gerber(gerber, source="benchmark")
+    },
+  ) catch {
     @mp.InvalidGerber(_, message) => Err(message)
   }
   guard parsed_document is Ok(document) else {
@@ -38,7 +44,7 @@ fn main {
     return
   }
   let parsed = now()
-  let selected = if panel {
+  let selected = if mode == "panel" {
     // Use the first cell; its expected references and coordinates are the same
     // at all panel sizes.
     @mp.select_panel_cell(document, row=1, column=1, source="benchmark") catch {
@@ -55,6 +61,7 @@ fn main {
     "selected_features": Json(selected.features.length()),
     "parse_ms": Json(parsed - start),
     "select_ms": Json(chosen - parsed),
+    "ready_ms": Json(chosen - start),
     "audit_ms": Json(audited - chosen),
     "peak_kib": Json(rss()),
     "report": result.report,

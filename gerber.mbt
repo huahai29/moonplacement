@@ -82,6 +82,8 @@ priv struct GerberState {
   warnings : Array[String]
   mut repeat : GerberRepeat?
   mut repeat_budget : Int32
+  keep_panel_base : Bool
+  mut panel_base : (Int32, Int32)?
   panel_grids : Array[GerberGrid]
   blocks : Map[Int32, Array[GerberFeature]]
   block_stack : Array[GerberBlock]
@@ -835,6 +837,16 @@ pub fn parse_gerber(
   text : String,
   source~ : String,
 ) -> GerberDocument raise GerberError {
+  let (document, _) = parse_gerber_layer(text, source, keep_panel_base=false)
+  document
+}
+
+///|
+fn parse_gerber_layer(
+  text : String,
+  source : String,
+  keep_panel_base~ : Bool,
+) -> (GerberDocument, (Int32, Int32)?) raise GerberError {
   let state : GerberState = {
     format: None,
     scale: None,
@@ -862,6 +874,8 @@ pub fn parse_gerber(
     warnings: [],
     repeat: None,
     repeat_budget: 200000,
+    keep_panel_base,
+    panel_base: None,
     panel_grids: [],
     blocks: Map([]),
     block_stack: [],
@@ -894,11 +908,12 @@ pub fn parse_gerber(
   if !state.repeated_refs.is_empty() {
     state.warnings.push(repeated_reference_warning)
   }
-  {
+  let document : GerberDocument = {
     features: state.features,
     warnings: state.warnings,
     repeated_refs: state.repeated_refs,
     panel_grids: state.panel_grids,
     panel_cell: None,
   }
+  (document, state.panel_base)
 }

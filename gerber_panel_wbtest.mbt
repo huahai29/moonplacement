@@ -1,13 +1,12 @@
 ///|
 test "selecting a panel cell retains later local clear operations and normalizes offsets" {
-  let doc = parse_gerber(
-    "%FSLAX46Y46*%%MOMM*%%ADD10C,1*%D10*%SRX2Y1I10J0*%" +
+  let text = "%FSLAX46Y46*%%MOMM*%%ADD10C,1*%D10*X12000000Y2000000D03*%SRX2Y1I10J0*%" +
     "%TO.P,R1,1*%X1000000Y2000000D03*%TD*%%SR*%" +
-    "%LPC*%X11000000Y2000000D03*M02*",
-    source="panel",
-  )
+    "%LPC*%X11000000Y2000000D03*M02*"
+  let doc = parse_gerber(text, source="panel")
   let first = select_panel_cell(doc, row=1, column=1, source="panel")
   let second = select_panel_cell(doc, row=1, column=2, source="panel")
+  let direct = parse_gerber_cell(text, row=1, column=2, source="panel")
   let p : Point = { x: 1.0, y: 2.0, }
   assert_true(copper_at(first, p, 0.0))
   assert_false(copper_at(second, p, 0.0))
@@ -16,17 +15,22 @@ test "selecting a panel cell retains later local clear operations and normalizes
   assert_eq(witness.pin, Some("1"))
   assert_eq(witness.pad_center.x, 1.0)
   assert_eq(witness.clear_bounds.upper.x, 1.5)
+  assert_eq(direct.features.length(), 3)
+  guard! pad_evidence(direct, ["R1"], [p], 0.1) is [PossibleClearance(copy)]
+  assert_eq(direct.warnings, second.warnings)
+  assert_eq(copy.pin, witness.pin)
+  assert_eq(copy.pad_index, witness.pad_index)
+  assert_eq(copy.clear_index, witness.clear_index)
+  assert_eq(copy.clear_statement, witness.clear_statement)
+  assert_eq(copy.clear_bounds.upper.x, witness.clear_bounds.upper.x)
 }
 
 ///|
 test "panel cell selection keeps duplicate instances inside a single cell ambiguous" {
-  let doc = parse_gerber(
-    "%FSLAX46Y46*%%MOMM*%%ADD10C,0.5*%%ABD20*%D10*%TO.P,D1,1*%" +
+  let text = "%FSLAX46Y46*%%MOMM*%%ADD10C,0.5*%%ABD20*%D10*%TO.P,D1,1*%" +
     "X0Y0D03*%TD*%%AB*%D20*%SRX2Y1I10J0*%X1000000Y2000000D03*" +
-    "X2000000Y2000000D03*%SR*%M02*",
-    source="blocks within each cell",
-  )
-  let cell = select_panel_cell(doc, row=1, column=2, source="panel")
+    "X2000000Y2000000D03*%SR*%M02*"
+  let cell = parse_gerber_cell(text, row=1, column=2, source="panel")
   assert_true(cell.repeated_refs.contains("D1"))
   guard! pad_evidence(cell, ["D1"], [{ x: 1.0, y: 2.0, }], 0.1)
     is [RepeatedReference]
@@ -64,4 +68,53 @@ test "bottom layer reuses a common cell boundary rather than deriving its own gr
   }
   guard! result is Err(InvalidGerber("bottom", detail))
   assert_true(detail.contains("网格原点或范围不一致"))
+  let direct = parse_gerber_cell(
+    head + "X3000000Y0D03*" + tail,
+    row=1,
+    column=2,
+    source="bottom",
+    reference=selected,
+  )
+  assert_true(copper_at(direct, { x: 3.0, y: 0.0, }, 0.0))
+}
+
+///|
+test "direct SR selection checks boundaries and rejects more than one real grid" {
+  let head = "%FSLAX46Y46*%%MOMM*%%ADD10C,1*%D10*"
+  let grid = "%SRX2Y1I10J0*%X0Y0D03*%SR*%"
+  for
+    (body, reason) in [
+      (grid + "X5000000Y0D03*", "跨越拼板单元边界"),
+      ("%SRX2Y1I1J0*%X0Y0D03*%SR*%", "重叠、相切"),
+      (grid + grid, "恰好有一组"),
+    ] {
+    let result = Ok(
+      parse_gerber_cell(head + body + "M02*", row=1, column=2, source="panel"),
+    ) catch {
+      error => Err(error)
+    }
+    guard! result is Err(InvalidGerber("panel", detail))
+    assert_true(detail.contains(reason))
+  }
+}
+
+///|
+test "direct SR selection retains a single base above the whole-panel budget" {
+  let content = StringBuilder()
+  content.write_string(
+    "%FSLAX46Y46*%%MOMM*%%ADD10C,0.4*%D10*%SRX100Y100I10J10*%",
+  )
+  for _ in 0..<21 {
+    content.write_string("X1250000Y750000D03*")
+  }
+  content.write_string("%SR*%M02*")
+  let text = content.to_string()
+  let cell = parse_gerber_cell(text, row=100, column=100, source="panel")
+  assert_eq(cell.features.length(), 21)
+  assert_true(copper_at(cell, { x: 1.25, y: 0.75, }, 0.0))
+  let whole = Ok(parse_gerber(text, source="panel")) catch {
+    error => Err(error)
+  }
+  guard! whole is Err(InvalidGerber("panel", detail))
+  assert_true(detail.contains("累计上限"))
 }

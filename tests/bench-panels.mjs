@@ -24,10 +24,12 @@ const put = (name, content) => {
 for (const size of [2, 5, 10]) {
   assert.match(realLayer, /%SRX2Y2I40J32\*%/);
   const layer = realLayer.replace('%SRX2Y2I40J32*%', `%SRX${size}Y${size}I40J32*%`);
-  cases.push({ name: `routed-${size}x${size}`, mode: 'panel',
-    layer: put(`routed-${size}.gbr`, layer),
-    placements: join(real, 'sr-baseline.csv'), policy: join(real, 'sr-policy.json'),
-    expected: size === 10 ? 'input_error' : 'pass', checked: size === 10 ? undefined : 12 });
+  const common = { layer: put(`routed-${size}.gbr`, layer),
+    placements: join(real, 'sr-baseline.csv'), policy: join(real, 'sr-policy.json') };
+  const name = `routed-${size}x${size}`;
+  cases.push({ ...common, name, mode: 'panel',
+    expected: size === 10 ? 'input_error' : 'pass', checked: size === 10 ? undefined : 12 },
+  { ...common, name: `${name}-direct`, mode: 'panel-direct', expected: 'pass', checked: 12 });
 }
 for (const side of [20, 40, 70]) {
   const n = side ** 2;
@@ -79,15 +81,21 @@ for (const item of cases) {
   const first = measurements[0];
   benchmark.cases[item.name] = { features: first.features, selected_features: first.selected_features,
     report_sha256: first.hash };
-  for (const key of ['parse_ms', 'select_ms', 'audit_ms', 'peak_kib']) {
+  for (const key of ['parse_ms', 'select_ms', 'ready_ms', 'audit_ms', 'peak_kib']) {
     if (first[key] !== undefined) benchmark.cases[item.name][key] = median(measurements.map(row => row[key]));
   }
 }
+for (const size of [2, 5, 10]) {
+  const name = `routed-${size}x${size}`;
+  const direct = benchmark.cases[`${name}-direct`];
+  const eager = benchmark.cases[name];
+  assert.equal(direct.features, direct.selected_features);
+  if (size !== 10) assert.equal(direct.report_sha256, eager.report_sha256, name);
+}
 if (beforeFile) {
   const before = JSON.parse(readFileSync(beforeFile, 'utf8'));
-  assert.deepEqual(Object.keys(benchmark.cases), Object.keys(before.cases));
-  for (const [name, row] of Object.entries(benchmark.cases)) {
-    assert.equal(row.report_sha256, before.cases[name].report_sha256, name);
+  for (const [name, row] of Object.entries(before.cases)) {
+    assert.equal(benchmark.cases[name]?.report_sha256, row.report_sha256, name);
   }
 }
 writeFileSync(output, JSON.stringify(benchmark, null, 2) + '\n');
