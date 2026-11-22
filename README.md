@@ -15,6 +15,8 @@ PCB 送厂前，用 MoonPlacement 对照设计坐标表和送厂坐标表，找�
 
 [离线 HTML 报告](docs/demo/panel-d1.html)可从 GitHub 下载原文件后用浏览器打开。[复现命令](#复现报告)
 
+[打开在线工作台](https://huahai29.github.io/moonplacement/)可直接运行 D1 示例或选择自己的文件。核对在浏览器中执行，可下载 JSON 和离线 HTML。
+
 ![MoonPlacement 离线报告显示第 2 行第 2 列的 D1 铜层偏差](docs/demo/panel-d1.png)
 
 ## 安装并运行
@@ -69,6 +71,12 @@ Windows 和 Linux 的 CLI 报告会在 CI 中逐项比对，含中文路径下�
 
 解析、配准和判定由 MoonBit 实现。Gerber 2024.05 是兼容目标，当前覆盖以验收表为准。KiCad 和 PyGerber 只用于验证样例。
 
-读源码可以从[配准](alignment.mbt)、[Gerber 解析](gerber.mbt)和[核验入口](audit.mbt)开始。[架构与模块](docs/architecture.md)说明它们如何协作。
+| 读源码 | 入口 |
+| --- | --- |
+| 坐标与基准配准 | [placement.mbt](placement.mbt)、[alignment.mbt](alignment.mbt) |
+| Gerber 与拼板 | [gerber.mbt](gerber.mbt)、[gerber_panel.mbt](gerber_panel.mbt) |
+| 核验与报告 | [audit.mbt](audit.mbt)、[padcheck.mbt](padcheck.mbt)、[report.mbt](report.mbt) |
+
+[架构说明](docs/architecture.md) · [报告契约 JSON](docs/接口契约.json)
 
 [参与开发](CONTRIBUTING.md) · [第三方来源](THIRD_PARTY_NOTICES.md) · [MIT 许可证](LICENSE)

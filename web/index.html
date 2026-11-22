@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="在浏览器中核对 PCB 贴片坐标与 Gerber 铜层。">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>MoonPlacement · PCB 贴装核对</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./workbench.mjs"></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="shell header-content">
+      <strong>MoonPlacement</strong>
+      <a href="https://github.com/huahai29/moonplacement">GitHub</a>
+    </div>
+  </header>
+  <main class="shell">
+    <header class="intro">
+      <h1>PCB 贴装核对</h1>
+      <p>对照设计表、送厂表和 Gerber 铜层。文件只在当前浏览器中处理。</p>
+    </header>
+    <div class="workspace">
+      <section class="panel" aria-labelledby="inputs-title">
+        <h2 id="inputs-title">核对输入</h2>
+        <form id="audit-form">
+          <label class="file-field">设计坐标表<input id="baseline" type="file" accept=".csv,text/csv" required></label>
+          <label class="file-field">送厂坐标表<input id="delivery" type="file" accept=".csv,text/csv" required></label>
+          <label class="file-field">配置 JSON<input id="policy" type="file" accept=".json,application/json" required></label>
+          <a class="template" href="./samples/policy.json" download>下载配置模板</a>
+          <fieldset>
+            <legend>Gerber 铜层 <span>选填</span></legend>
+            <label class="file-field">顶层 Gerber<input id="top" type="file"></label>
+            <label class="file-field">底层 Gerber<input id="bottom" type="file"></label>
+            <label class="panel-toggle"><input id="use-cell" type="checkbox"> 按 SR 拼板单元核对</label>
+            <div class="cell-fields" id="cell-fields" hidden>
+              <label>行<input id="row" type="number" min="1" max="10000" value="1" required disabled></label>
+              <label>列<input id="column" type="number" min="1" max="10000" value="1" required disabled></label>
+            </div>
+          </fieldset>
+          <div class="actions">
+            <button id="run" type="submit">开始核对</button>
+            <button id="demo" type="button" class="secondary">运行 D1 示例</button>
+          </div>
+        </form>
+        <noscript><p>工作台需要 JavaScript。可在 GitHub 下载项目后用命令行核对。</p></noscript>
+      </section>
+      <section class="panel result" aria-labelledby="result-title">
+        <div class="result-title">
+          <h2 id="result-title">核对结果</h2>
+          <div class="downloads" id="downloads" hidden>
+            <a id="download-json" download="moonplacement-report.json">下载 JSON</a>
+            <a id="download-html" download="moonplacement-report.html">下载 HTML</a>
+          </div>
+        </div>
+        <div class="result-body">
+          <p id="result-state" role="status" data-kind="idle">选择文件开始核对，或先运行 D1 示例。</p>
+          <p id="result-detail" hidden></p>
+          <dl id="metrics" class="metrics" hidden>
+            <div><dt>坐标表差异</dt><dd id="table-count"></dd></div>
+            <div><dt>铜层差异</dt><dd id="pad-count"></dd></div>
+            <div><dt>按位号核验</dt><dd id="checked-count"></dd></div>
+          </dl>
+        </div>
+        <iframe id="report-frame" title="MoonPlacement 离线报告预览" sandbox hidden></iframe>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

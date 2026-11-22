@@ -68,7 +68,7 @@ fn load_file(
 
 ///|
 fn usage() -> String {
-  "用法：moon run cmd/main --target js -- <基准.csv> <送厂.csv> <配置.json> [顶层.gbr] [底层.gbr] [--panel-cell 行,列] [--html 报告.html]"
+  "用法：moon run cmd/main --target js -- <基准.csv> <送厂.csv> <配置.json> [顶层.gbr] [底层.gbr] [--panel-cell 行,列] [--html 报告.html]\n       moon run cmd/main --target js -- --report-schema"
 }
 
 ///|
@@ -139,7 +139,7 @@ fn load_layer(
   cell : (Int32, Int32)?,
   reference~ : @placement.GerberDocument? = None,
 ) -> @placement.GerberDocument raise @placement.InputError {
-  let text = load_file(path, 8_388_608)
+  let text = load_file(path, @placement.INPUT_FILE_MAX_BYTES)
   try {
     if cell is Some((row, column)) {
       @placement.parse_gerber_cell(text, row~, column~, source=path, reference?)
@@ -158,6 +158,10 @@ fn run() -> Int32 raise @placement.InputError {
     println(usage())
     return 0
   }
+  if arg_count() == 1 && arg(0) == "--report-schema" {
+    println(@placement.report_contract().stringify(indent=2))
+    return 0
+  }
   let args = parse_args()
   let positional = args.positional
   if positional.length() != 3 &&
@@ -170,13 +174,15 @@ fn run() -> Int32 raise @placement.InputError {
       "panel_cell", "--panel-cell 需要提供 Gerber 铜层",
     )
   }
-  let policy = @placement.read_policy(load_file(positional[2], 65_536))
+  let policy = @placement.read_policy(
+    load_file(positional[2], @placement.POLICY_FILE_MAX_BYTES),
+  )
   let baseline = @placement.read_placements(
-    load_file(positional[0], 8_388_608),
+    load_file(positional[0], @placement.INPUT_FILE_MAX_BYTES),
     source=positional[0],
   )
   let delivery = @placement.read_placements(
-    load_file(positional[1], 8_388_608),
+    load_file(positional[1], @placement.INPUT_FILE_MAX_BYTES),
     source=positional[1],
   )
   let top = if positional.length() >= 4 {
@@ -210,25 +216,16 @@ fn run() -> Int32 raise @placement.InputError {
     None => ()
   }
   println(result.report.stringify(indent=2))
-  match result.verdict {
-    @placement.Pass => 0
-    @placement.Different => 1
-    @placement.Indeterminate => 2
-  }
+  result.verdict.exit_code()
 }
 
 ///|
 fn main {
   let code = run() catch {
     @placement.InvalidInput(field, message) => {
-      let report : Json = {
-        "schema_version": Json(@placement.REPORT_SCHEMA_VERSION),
-        "status": Json("input_error"),
-        "field": Json(field),
-        "message": Json(message),
-      }
+      let report = @placement.input_error_report(field, message)
       println(report.stringify(indent=2))
-      64
+      @placement.INPUT_ERROR_EXIT_CODE
     }
   }
   finish(code)

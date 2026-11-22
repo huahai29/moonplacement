@@ -5,6 +5,7 @@
 /.mooncakes/
 /node_modules/
 /examples/hardware/
+/web/
 *.generated.mbti
 __pycache__/
 **/credentials.json

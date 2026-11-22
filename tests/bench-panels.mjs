@@ -73,6 +73,9 @@ for (const item of cases) {
     const row = JSON.parse(run.stdout);
     assert.equal(row.report.status, item.expected);
     assert.equal(row.report.pad_checked, item.checked);
+    if (item.name === 'routed-10x10-direct') {
+      assert.ok(row.peak_kib <= 128 * 1024, '10×10: peak process memory exceeded 128 MiB');
+    }
     if (item.expected === 'input_error') assert.match(row.report.message, /200000.*累计上限/);
     const hash = createHash('sha256').update(JSON.stringify(row.report)).digest('hex');
     assert.ok(!measurements.length || measurements[0].hash === hash);

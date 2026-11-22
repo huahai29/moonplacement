@@ -55,12 +55,22 @@ jobs:
           moon build --target js
           node --test tests/cli.test.mjs
           node tests/demo-report.mjs
+          node tests/report-contract.mjs
       - name: 记录 MoonBit 库覆盖率
         if: runner.os == 'Linux'
         run: |
           set -o pipefail
           moon coverage analyze --target-dir _build/coverage-ci -p huahai29/moonplacement -- --format full_summary | tee _build/coverage-summary.txt
           { echo '### MoonBit 库覆盖率'; echo; sed 's/^/    /' _build/coverage-summary.txt; } >> "$GITHUB_STEP_SUMMARY"
+          node tests/check-coverage.mjs _build/coverage-summary.txt
+      - name: 构建并验证浏览器工作台
+        if: runner.os == 'Linux'
+        run: |
+          moon build --target js --release
+          node web/build.mjs
+          npm --prefix web ci
+          npm --prefix web exec -- playwright install --with-deps chromium
+          npm --prefix web test
       - name: 保存跨平台案例输出
         run: node tests/platform-cases.mjs record
       - uses: actions/upload-artifact@v4
@@ -89,7 +99,6 @@ jobs:
       - name: 记录拼板性能及核验结果
         if: runner.os == 'Linux'
         run: |
-          moon build --target js --release
           MOONPLACEMENT_BENCH_SAMPLES=3 node tests/bench-panels.mjs
       - name: 独立 Gerber 铜层对照
         if: runner.os == 'Linux'
@@ -109,6 +118,10 @@ jobs:
             _build/panel-benchmark.json
             _build/coverage-summary.txt
           if-no-files-found: ignore
+      - uses: actions/upload-pages-artifact@v4
+        if: runner.os == 'Linux' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        with:
+          path: _build/workbench
 
   compare-platforms:
     needs: verify
@@ -124,3 +137,19 @@ jobs:
           path: _build/platform-reports
       - name: 比对 Windows 与 Linux 的报告
         run: node tests/platform-cases.mjs compare _build/platform-reports/platform-Linux/platform-cases.json _build/platform-reports/platform-Windows/platform-cases.json
+
+  deploy-workbench:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: compare-platforms
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: moonplacement-pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

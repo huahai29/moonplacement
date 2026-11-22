@@ -12,4 +12,6 @@ MoonPlacement 先把送厂坐标换算到设计表的坐标系，再比较位号
 
 两表始终能比较漏件、多件和错面。位置、角度和铜层距离需要唯一配准。缺少 X2 归属时，附近有铜只是一条复查线索。已确认的差异仍会保留在报告里。
 
-生产计算和报告由 MoonBit 实现。命令行通过 Node.js 读取和写入文件。CI 使用 KiCad 生成实际输入，用 PyGerber 独立对照关键铜点。库入口见 [公共 API](api.md)，报告字段和边界见[核对规则](audit.md)。
+生产计算和报告由 MoonBit 实现。命令行通过 Node.js 读取和写入文件。网页在 Web Worker 中用 [MoonBit 适配层](../bridge/main.mbt)调用同一库，浏览器负责选文件、预览和下载。两处采用 [contract.mbt](../contract.mbt) 定义的报告版本和输入限制。
+
+CI 使用 KiCad 生成实际输入，用 PyGerber 独立对照关键铜点。库入口见 [公共 API](api.md)，报告字段和边界见[核对规则](audit.md)。

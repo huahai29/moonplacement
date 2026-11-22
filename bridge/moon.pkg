@@ -1,0 +1,10 @@
+import {
+  "huahai29/moonplacement" @mp,
+}
+
+pkgtype(kind: "executable")
+
+options(
+  supported_targets: "js",
+  link: { "js": { "exports": [ "audit_files" ], "format": "esm" } },
+)

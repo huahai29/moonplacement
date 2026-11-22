@@ -21,3 +21,7 @@ pkgtype(kind: "executable")
 选择单元时，行列从 1 开始。双面核对先选顶层，再为底层传入同一单元的顶层文档作为 `reference`；两张坐标表都使用第一单元的坐标系。[拼板单元规则](audit.md#拼板单元)
 
 通过 `AuditResult.verdict` 区分 `Pass`、`Different` 和 `Indeterminate`。遇到 `Indeterminate` 时，读 `reason`、`rejected_frames` 或 `pad_evidence` 定位缺失的证据。[JSON v3 字段说明](audit.md#json-报告-v3)
+
+## 机器读取报告契约
+
+[接口契约.json](接口契约.json)由主分支的 MoonBit 代码生成，可用 JSON Schema 2020-12 验证报告。它描述正常报告、输入错误、常用定位结构，并附退出码和文件字节上限。其余诊断语义见[核对规则](audit.md)。GitHub 主分支支持 `--report-schema` 输出同一份结构。

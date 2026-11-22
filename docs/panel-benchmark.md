@@ -40,4 +40,4 @@ moon build --target js --release
 node tests/bench-panels.mjs _build/real-panel _build/panel-after.json
 ```
 
-如已有优化前的同一基准报告，可在末尾加上其路径，脚本会逐案例核对完整报告的 SHA-256。CI 运行三次并保存 JSON，同时断言固定顶铜输入的直接解析路径只保留 98 个对象。耗时和进程峰值内存作为观测值记录。
+如已有优化前的同一基准报告，可在末尾加上其路径，脚本会逐案例核对完整报告的 SHA-256。CI 运行三次并保存 JSON，同时断言固定顶铜输入的直接解析只保留 98 个对象。10×10 直接解析使用 128 MiB 的峰值进程内存预算，耗时作为观测值记录。
