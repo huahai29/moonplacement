@@ -54,6 +54,13 @@ jobs:
         run: |
           moon build --target js
           node --test tests/cli.test.mjs
+          node tests/demo-report.mjs
+      - name: 记录 MoonBit 库覆盖率
+        if: runner.os == 'Linux'
+        run: |
+          set -o pipefail
+          moon coverage analyze --target-dir _build/coverage-ci -p huahai29/moonplacement -- --format full_summary | tee _build/coverage-summary.txt
+          { echo '### MoonBit 库覆盖率'; echo; sed 's/^/    /' _build/coverage-summary.txt; } >> "$GITHUB_STEP_SUMMARY"
       - name: 保存跨平台案例输出
         run: node tests/platform-cases.mjs record
       - uses: actions/upload-artifact@v4
@@ -100,6 +107,7 @@ jobs:
             _build/release-consumer/unpacked.json
             _build/real-panel
             _build/panel-benchmark.json
+            _build/coverage-summary.txt
           if-no-files-found: ignore
 
   compare-platforms:

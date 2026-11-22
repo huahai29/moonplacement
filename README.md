@@ -4,6 +4,19 @@
 
 PCB 送厂前，用 MoonPlacement 对照设计坐标表和送厂坐标表，找出漏件、多件、贴错面、偏位和角度差。手边有 Gerber 铜层的话，还能检查两张表是否把同一颗器件都标错了位置。
 
+## 看一个例子
+
+<!-- demo-summary:start -->
+
+两张坐标表都把 D1 标在同一位置。只核对两表会得到 `pass`。加上 Gerber，
+第 2 行第 2 列的铜层报告变为 `different`，指出 D1 偏移 **0.30 mm**。
+
+<!-- demo-summary:end -->
+
+[离线 HTML 报告](docs/demo/panel-d1.html)可从 GitHub 下载原文件后用浏览器打开。[复现命令](#复现报告)
+
+![MoonPlacement 离线报告显示第 2 行第 2 列的 D1 铜层偏差](docs/demo/panel-d1.png)
+
 ## 安装并运行
 
 安装 [MoonBit](https://www.moonbitlang.com/download/) 和 Node.js 22.3 或更新版本。CI 使用 `moonc v0.10.16+b1a0e846e`。不用安装 npm 依赖。
@@ -15,11 +28,17 @@ moon build --target js
 node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/delivery-ok.csv examples/policy.json
 ```
 
-正常会输出 `"status": "pass"`。把送厂表换成 `examples/delivery-errors.csv`，可以看到 C7 漏件和 D1 错面。加上顶层铜文件和 `--html`，就能在浏览器里查看报告：
+正常会输出 `"status": "pass"`。把送厂表换成 `examples/delivery-errors.csv`，可以看到 C7 漏件和 D1 错面。
+
+### 复现报告
+
+给同一对坐标表加上示例铜层，选择第 2 行第 2 列：
 
 ```sh
-node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/delivery-ok.csv examples/policy.json examples/top-copper.gbr --html _build/report.html
+node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/delivery-ok.csv examples/policy.json examples/gerber/panel-cell-2x2.gbr --panel-cell 2,2 --html _build/report.html
 ```
+
+退出码 1 表示发现差异，报告写到 `_build/report.html`。
 
 ## 核对自己的板子
 
@@ -38,7 +57,7 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 
 ## 可复现案例
 
-[0.1.1 版本与验收](docs/release-0.1.1.md)汇总库安装、实导出、拼板复现和性能数据。在 MoonBit 项目中使用时，运行 `moon add huahai29/moonplacement@0.1.1`。
+[0.1.1 版本与验收](docs/release-0.1.1.md)汇总库安装、实导出、拼板复现和性能数据。在 MoonBit 项目中使用时，运行 `moon add huahai29/moonplacement@0.1.1`，参考[公共 API](docs/api.md)。
 
 - [KiCad 双面实导出](examples/README.md#铜层实导出验证)：两张表都把底面 C7 偏移了 0.30 mm。两表结果为 `pass`，加入原铜层后，报告指出 C7 的偏移。
 - [拼板单元核对](examples/README.md#核对拼板单元)：用 `--panel-cell 2,2` 核对第 2 行第 2 列。2×2 样例只有这个单元的 D1 偏移 0.30 mm。
@@ -50,4 +69,6 @@ Windows 和 Linux 的 CLI 报告会在 CI 中逐项比对，含中文路径下�
 
 解析、配准和判定由 MoonBit 实现。Gerber 2024.05 是兼容目标，当前覆盖以验收表为准。KiCad 和 PyGerber 只用于验证样例。
 
-[MIT 许可证](LICENSE)
+读源码可以从[配准](alignment.mbt)、[Gerber 解析](gerber.mbt)和[核验入口](audit.mbt)开始。[架构与模块](docs/architecture.md)说明它们如何协作。
+
+[参与开发](CONTRIBUTING.md) · [第三方来源](THIRD_PARTY_NOTICES.md) · [MIT 许可证](LICENSE)

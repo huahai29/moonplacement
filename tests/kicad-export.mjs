@@ -79,6 +79,11 @@ function shiftC7(input, name, shiftInFileUnits) {
 
 const baseline = join(dir, 'baseline.csv');
 exportPosition(baseline, 'mm');
+const padCenterToleranceMm = 0.001;
+const documentedRoundRect = readFileSync('docs/gerber-acceptance.md', 'utf8').split(/\r?\n/)
+  .find(line => line.includes('U3 的通过条件'));
+assert.ok(documentedRoundRect?.includes(`中心偏差小于 ${padCenterToleranceMm} mm`),
+  'documented KiCad RoundRect tolerance is stale');
 let negatedDelivery;
 for (const mirror of ['direct', 'negated']) {
   const delivery = join(dir, `delivery-${mirror}.csv`);
@@ -99,10 +104,10 @@ for (const mirror of ['direct', 'negated']) {
   assert.equal(report.pad_evidence.find(({ ref }) => ref === 'C7').evidence.pad_count, 2);
   const rounded = report.pad_evidence.find(({ ref }) => ref === 'U3').evidence;
   assert.equal(rounded.pad_count, 1);
-  assert.ok(rounded.distance_mm < 0.001);
+  assert.ok(rounded.distance_mm < padCenterToleranceMm);
   const chamfered = report.pad_evidence.find(({ ref }) => ref === 'R2').evidence;
   assert.equal(chamfered.pad_count, 1);
-  assert.ok(chamfered.distance_mm < 0.001);
+  assert.ok(chamfered.distance_mm < padCenterToleranceMm);
   if (mirror === 'negated') negatedDelivery = delivery;
 }
 

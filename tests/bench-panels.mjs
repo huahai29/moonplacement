@@ -89,7 +89,9 @@ for (const size of [2, 5, 10]) {
   const name = `routed-${size}x${size}`;
   const direct = benchmark.cases[`${name}-direct`];
   const eager = benchmark.cases[name];
-  assert.equal(direct.features, direct.selected_features);
+  // This fixture uses the same KiCad single-board copper at every grid size.
+  assert.equal(direct.selected_features, 98, `${name}: selected copper objects`);
+  assert.equal(direct.features, 98, `${name}: only one SR cell should be materialized`);
   if (size !== 10) assert.equal(direct.report_sha256, eager.report_sha256, name);
 }
 if (beforeFile) {

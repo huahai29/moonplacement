@@ -26,6 +26,33 @@ test "selecting a panel cell retains later local clear operations and normalizes
 }
 
 ///|
+test "direct and expanded SR selection yield the same audit across rows and columns" {
+  let table = fixture_table(
+    "R1,1,1,0,top\nR2,4,1,0,top\nR3,1,4,0,top\nD1,4,4,0,top",
+  )
+  let policy = matching_policy()
+  for (rows, columns) in [(1, 4), (3, 1), (3, 4)] {
+    let text = "%FSLAX46Y46*%%MOMM*%%ADD10C,0.5*%D10*" +
+      "%SRX\{columns}Y\{rows}I12.5J15.25*%" +
+      "%TO.P,R1,1*%X1000000Y1000000D03*%TO.P,R2,1*%X4000000Y1000000D03*" +
+      "%TO.P,R3,1*%X1000000Y4000000D03*%TO.P,D1,1*%X4000000Y4000000D03*%TD*%" +
+      "%LPC*%X4000000Y4000000D03*%SR*%" +
+      "%LPD*%X10000000Y1000000D03*M02*"
+    let full = parse_gerber(text, source="panel")
+    for row in 1..<=rows {
+      for column in 1..<=columns {
+        let direct = parse_gerber_cell(text, row~, column~, source="panel")
+        let eager = select_panel_cell(full, row~, column~, source="panel")
+        let actual = audit(table, table, policy, top_gerber=Some(direct))
+        let expected = audit(table, table, policy, top_gerber=Some(eager))
+        assert_true(actual.verdict is Indeterminate)
+        assert_eq(actual.report.stringify(), expected.report.stringify())
+      }
+    }
+  }
+}
+
+///|
 test "panel cell selection keeps duplicate instances inside a single cell ambiguous" {
   let text = "%FSLAX46Y46*%%MOMM*%%ADD10C,0.5*%%ABD20*%D10*%TO.P,D1,1*%" +
     "X0Y0D03*%TD*%%AB*%D20*%SRX2Y1I10J0*%X1000000Y2000000D03*" +
