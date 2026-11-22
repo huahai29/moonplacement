@@ -83,7 +83,8 @@ pub fn report_contract() -> Json {
   let pad_difference = contract_object({
     "ref": text,
     "kind": { "const": Json("pad_offset") },
-    "side": side,
+    "delta_x_mm": number,
+    "delta_y_mm": number,
     "distance_mm": number,
   })
   let panel_cell = contract_object({

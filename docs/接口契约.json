@@ -124,7 +124,8 @@
             "required": [
               "ref",
               "kind",
-              "side",
+              "delta_x_mm",
+              "delta_y_mm",
               "distance_mm"
             ],
             "properties": {
@@ -134,11 +135,11 @@
               "kind": {
                 "const": "pad_offset"
               },
-              "side": {
-                "enum": [
-                  "top",
-                  "bottom"
-                ]
+              "delta_x_mm": {
+                "type": "number"
+              },
+              "delta_y_mm": {
+                "type": "number"
               },
               "distance_mm": {
                 "type": "number"

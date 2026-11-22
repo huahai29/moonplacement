@@ -103,7 +103,8 @@ jobs:
       - name: 独立 Gerber 铜层对照
         if: runner.os == 'Linux'
         run: |
-          python -m pip install pygerber==2.4.3
+          python -m pip install pygerber==2.4.3 jsonschema==4.26.0
+          python tests/report-schema.py
           python tests/gerber-oracle.py _build/kicad-evidence/copper
       - name: 保存 KiCad 导出与核对报告
         if: always() && runner.os == 'Linux'
