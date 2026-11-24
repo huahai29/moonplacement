@@ -51,7 +51,7 @@ pub fn audit_files(
       column,
       reference?=top,
     )
-    let result = @mp.audit(
+    let result = @mp.audit_checked(
       baseline,
       delivery,
       policy,

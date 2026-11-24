@@ -139,6 +139,8 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
   let pad_state = match json_string(report, "pad_status") {
     "complete" => "已取得全部位号证据"
     "incomplete" => "部分器件缺少位号证据"
+    "skipped" if reason == "invalid_gerber_layer" =>
+      "Gerber 板面或用途不符，未核验"
     "skipped" => "未能对齐，未核验"
     _ => "未提供铜层"
   }

@@ -232,7 +232,7 @@ fn run() -> Int32 raise @placement.InputError {
   } else {
     None
   }
-  let result = @placement.audit(
+  let result = @placement.audit_checked(
     baseline,
     delivery,
     policy,

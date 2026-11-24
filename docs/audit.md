@@ -35,6 +35,8 @@
 
 命令行可追加顶层、或按顶层加底层的顺序追加两个 Gerber（RS-274X）文件。工具只核验传入的板面，把送厂坐标映射回基准坐标系，再与铜层比较。Gerber 和基准坐标表应使用同一原点和坐标方向。
 
+文件有 `.FileFunction` 时，顶层输入必须声明为 `Copper, …, Top`，底层输入必须声明为 `Copper, …, Bot`。明确声明为相反板面、内层或阻焊等其他用途时，CLI 和网页返回 `input_error`。缺少声明的旧文件继续按调用方指定板面核验，并在 `pad_warnings` 说明板面未经文件属性确认。库可用 `audit_checked` 接收相同的输入错误，旧 `audit` 返回 `indeterminate` 和原因 `invalid_gerber_layer`，并跳过铜层核验。
+
 - 坐标支持 `FS` 声明的绝对坐标及前零、尾零省略。`MO` 必须声明毫米或英寸，省略的 X/Y 轴沿用当前位置，单独的 `D03` 在当前位置放置焊盘。增量坐标、两轴位宽不一致和无效坐标会返回 `input_error`。见 [Gerber 格式规范](https://www.ucamco.com/en/gerber)。
 - 标准 `C`/`R`/`O`/`P` 支持同心圆孔。光圈宏支持单圆、中心线矩形、向量线、多边形轮廓、正多边形、热焊盘以及 KiCad 圆角矩形组合。部分实心外形可开多个互不接触的圆孔。孔内区域不提供铜证据，也不清除孔下已有的铜。焊盘归属优先用 X2 `TO.P` 的位号，其次用 `TO.C`。`TD` 支持按属性名清除。其他命令与范围见 [Gerber 2024.05 验收](gerber-acceptance.md)。
 - 有位号归属时，计算该器件暗色闪光焊盘的面积加权中心，与送厂坐标比较。差值超过 `pad_tolerance_mm` 记为 `pad_offset`。该中心不一定等于不对称封装的贴装原点；用此结果判断贴装偏位前应确认原点定义。
@@ -62,7 +64,7 @@ MoonBit 库可直接调用 `parse_gerber_cell(text, row=10, column=10, source="t
 - `candidate_frames` 列出通过基准检查的候选。`rejected_frames` 用 `anchor_tolerance_exceeded` 标记超出容差的候选，并附该候选的 `frame`。`degenerate_delivery_anchors` 表示该底面约定下的基准分布退化，此时只给出约定和原因。
 - 每个算出平移的 `frame` 都含 `anchor_residuals` 和 `worst_anchor_refs`。逐点残差按配置里的基准顺序给出位号、对齐后送厂点减基准点的 `delta_x_mm`、`delta_y_mm`、二维距离 `distance_mm`、是否在基准容差内以及是否进入一致集合的 `inlier`。`worst_anchor_refs` 包含达到最大残差的全部位号。残差可用于定位复核对象，同一组基准可能有多个并列最差点。
 - `differences` 记录器件差异。即使整体状态为 `indeterminate`，仍列出已确认的 `missing`、`extra`、`side`，以及 `value` 和 `package`。有唯一对齐变换时，也列出 `position` 和 `angle`。某位号缺失、而一个新位号恰好落在它的期望位置时，按改名处理并记为 `swapped`，`with` 给出新位号，不再重复记为 `missing` 和 `extra`。
-- `pad_differences` 记录可归属到位号的 `pad_offset`。`pad_checked` 只计有归属的器件，包含超限器件；`pad_sides` 是用户传入的板面。`pad_status` 为 `not_requested`、`skipped`（无唯一对齐，等同 `pad_skipped: true`）、`incomplete`（缺位号证据）或 `complete`（证据齐全，可能仍有超限）。
+- `pad_differences` 记录可归属到位号的 `pad_offset`。`pad_checked` 只计有归属的器件，包含超限器件。`pad_sides` 是用户传入的板面。`pad_status` 为 `not_requested`、`skipped`（无唯一对齐或板面声明冲突，等同 `pad_skipped: true`）、`incomplete`（缺位号证据）或 `complete`（证据齐全，可能仍有超限）。
 - `pad_evidence` 按位号和板面记录 `by_reference`、`copper_only` 或 `unverified`。`by_reference` 同时给出焊盘数、距离及是否在容差内。可能被后绘制的清除对象影响时，`unverified` 带 `reason: "possible_clearance"` 和下述定位线索。拼板内重复位号返回 `reason: "repeated_reference"`。`pad_warnings` 保留板面诊断，普通圆弧和远处的清除对象可与 `pad_status: "complete"` 共存。
 
   - `clearance.pad` 给出一块候选受影响焊盘的引脚（X2 未提供时为 `null`）、中心坐标和对象编号。

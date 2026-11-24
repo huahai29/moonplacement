@@ -42,3 +42,5 @@
 <!-- kicad-panel-results:end -->
 
 [实板与拼板的复现步骤](real-panel.md)
+
+[焊盘质心和容差边界的独立计算](pad-tolerance-validation.md)覆盖矩形、镜像旋转、双孔宏和指定拼板单元。

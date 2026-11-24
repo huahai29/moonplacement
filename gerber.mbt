@@ -33,6 +33,9 @@ pub struct GerberFeature {
 /// Parsed Gerber layer. `warnings` records constructs that were intentionally
 /// approximated or skipped so callers can surface them.
 pub struct GerberDocument {
+  source : String
+  /// Complete normalized X2 FileFunction statement when declared.
+  file_function : String?
   features : Array[GerberFeature]
   warnings : Array[String]
   /// Normalized references that appear in multiple panel copies.
@@ -78,6 +81,7 @@ priv struct GerberState {
   mut pin_refdes : String?
   mut pin_name : String?
   mut statement_number : Int32
+  mut file_function : String?
   features : Array[GerberFeature]
   warnings : Array[String]
   mut repeat : GerberRepeat?
@@ -727,6 +731,11 @@ fn process_statement(
   if chars.length() == 0 {
     return
   }
+  if statement == "G04#@!TF.FileFunction" ||
+    statement.has_prefix("G04#@!TF.FileFunction,") {
+    parse_file_function(state, chars_to_string(chars, 6), source)
+    return
+  }
   if state.region &&
     !(chars[0] == 'G' ||
     chars[0] == 'D' ||
@@ -811,6 +820,10 @@ fn process_statement(
         if statement == "TF.FilePolarity,Negative" {
           raise InvalidGerber(source, "暂不支持负像铜层核验")
         }
+        if statement == "TF.FileFunction" ||
+          statement.has_prefix("TF.FileFunction,") {
+          parse_file_function(state, statement, source)
+        }
         return
       }
       ('T', 'A') => return
@@ -870,6 +883,7 @@ fn parse_gerber_layer(
     pin_refdes: None,
     pin_name: None,
     statement_number: 0,
+    file_function: None,
     features: [],
     warnings: [],
     repeat: None,
@@ -909,6 +923,8 @@ fn parse_gerber_layer(
     state.warnings.push(repeated_reference_warning)
   }
   let document : GerberDocument = {
+    source,
+    file_function: state.file_function,
     features: state.features,
     warnings: state.warnings,
     repeated_refs: state.repeated_refs,

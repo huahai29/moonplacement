@@ -155,14 +155,52 @@ fn side_targets(
 /// Membership and side are always checked. Geometry requires a unique frame.
 ///
 /// `top_gerber` and `bottom_gerber` are optional parsed copper layers used for
-/// the pad-level cross-check; when absent the report records an empty pad list
-/// and the previous behaviour is unchanged.
+/// the pad-level cross-check. A conflicting file declaration yields
+/// `Indeterminate` without copper findings. Use `audit_checked` to raise an
+/// `InputError` for the same conflict.
 pub fn audit(
   baseline_table : PlacementTable,
   delivery_table : PlacementTable,
   policy : Policy,
   top_gerber~ : GerberDocument? = None,
   bottom_gerber~ : GerberDocument? = None,
+) -> AuditResult {
+  audit_impl(
+    baseline_table,
+    delivery_table,
+    policy,
+    top_gerber,
+    bottom_gerber,
+    check_layer_slots(top_gerber, bottom_gerber),
+  )
+}
+
+///|
+/// Audit with explicit input errors for Gerber layer-slot conflicts.
+pub fn audit_checked(
+  baseline_table : PlacementTable,
+  delivery_table : PlacementTable,
+  policy : Policy,
+  top_gerber~ : GerberDocument? = None,
+  bottom_gerber~ : GerberDocument? = None,
+) -> AuditResult raise InputError {
+  let issues = check_layer_slots(top_gerber, bottom_gerber)
+  if issues.get(0) is Some(issue) {
+    raise InvalidInput(issue.source, issue.message)
+  }
+  audit_impl(
+    baseline_table, delivery_table, policy, top_gerber, bottom_gerber, issues,
+  )
+}
+
+///|
+fn audit_impl(
+  baseline_table : PlacementTable,
+  delivery_table : PlacementTable,
+  policy : Policy,
+  top_gerber : GerberDocument?,
+  bottom_gerber : GerberDocument?,
+  layer_issues : Array[LayerIssue],
 ) -> AuditResult {
   let baseline = baseline_table.rows
   let delivery = delivery_table.rows
@@ -267,13 +305,24 @@ pub fn audit(
   }
   let pad_differences : Array[Json] = []
   let pad_results : Array[Json] = []
-  let pad_warnings : Array[Json] = []
+  let pad_warnings : Array[Json] = layer_issues.map(issue => {
+    "side": Json(side_name(issue.side)),
+    "message": Json(issue.message),
+  })
   let pad_sides : Array[Json] = []
   let panel_cells : Array[Json] = []
   let mut pad_checked = 0
   for layer in [(Top, top_gerber), (Bottom, bottom_gerber)] {
     guard layer is (side, Some(document)) else { continue }
     pad_sides.push(Json(side_name(side)))
+    if document.file_function is None {
+      pad_warnings.push({
+        "side": Json(side_name(side)),
+        "message": Json(
+          "Gerber 缺少 .FileFunction，板面沿用调用方指定的输入位置",
+        ),
+      })
+    }
     if document.panel_cell is Some(cell) {
       panel_cells.push({
         "side": Json(side_name(side)),
@@ -291,7 +340,7 @@ pub fn audit(
         "message": Json(warning),
       })
     }
-    guard frame is Some(chosen) else { continue }
+    guard layer_issues.is_empty() && frame is Some(chosen) else { continue }
     let targets = side_targets(delivery, side, chosen, policy)
     let items = pad_evidence(
       document,
@@ -354,7 +403,8 @@ pub fn audit(
       }
     }
   }
-  let pad_skipped = !pad_sides.is_empty() && frame is None
+  let pad_skipped = !pad_sides.is_empty() &&
+    (frame is None || !layer_issues.is_empty())
   let pad_status = if pad_sides.is_empty() {
     "not_requested"
   } else if pad_skipped {
@@ -364,7 +414,9 @@ pub fn audit(
   } else {
     "complete"
   }
-  let (verdict, reason) = if !anchor_issues.is_empty() {
+  let (verdict, reason) = if !layer_issues.is_empty() {
+    (Indeterminate, Json("invalid_gerber_layer"))
+  } else if !anchor_issues.is_empty() {
     (Indeterminate, Json("invalid_anchors"))
   } else if !search.baseline_has_area {
     (Indeterminate, Json("degenerate_baseline_anchors"))

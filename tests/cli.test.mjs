@@ -382,6 +382,39 @@ test('writes an HTML report with a board map', t => {
   assert.deepEqual(readdirSync(directory), ['report.html']);
 });
 
+test('rejects declared bottom, inner and non-copper layers in the top input', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'moonplacement-layer-role-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const source = readFileSync('examples/top-copper.gbr', 'utf8');
+  const copper = join(directory, '顶层.gbr');
+  const html = join(directory, 'output.html');
+  for (const header of [
+    '%TF.FileFunction,Copper,L2,Bot*%',
+    '%TF.FileFunction,Copper,L2,Inr,Plane*%',
+    '%TF.FileFunction,Soldermask,Top*%',
+    'G04 #@! TF.FileFunction,Copper,L2,Bot*',
+  ]) {
+    writeFileSync(copper, header + '\n' + source);
+    const report = run([baseline, delivery, policy, copper, '--html', html], 64);
+    assert.equal(report.status, 'input_error');
+    assert.equal(report.field, copper);
+    assert.match(report.message, /\.FileFunction 与顶层铜输入不符/);
+    assert.deepEqual(readdirSync(directory), ['顶层.gbr']);
+  }
+
+  writeFileSync(copper, '%TF.FileFunction,Copper,L1,Top*%\n' + source);
+  const wrongBottom = run([baseline, delivery, policy, copper, copper], 64);
+  assert.equal(wrongBottom.field, copper);
+  assert.match(wrongBottom.message, /\.FileFunction 与底层铜输入不符/);
+  const valid = run([baseline, delivery, policy, copper], 0);
+  assert.deepEqual(valid.pad_warnings, []);
+
+  const legacy = run([baseline, delivery, policy, 'examples/top-copper.gbr'], 0);
+  assert.equal(legacy.pad_status, 'complete');
+  assert.deepEqual(legacy.pad_warnings.map(item => item.side), ['top']);
+  assert.match(legacy.pad_warnings[0].message, /缺少 \.FileFunction/);
+});
+
 test('keeps input and aliases intact when they are selected as the report target', t => {
   const directory = mkdtempSync(join(tmpdir(), 'moonplacement-protect-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));

@@ -21,7 +21,6 @@ jobs:
         with:
           node-version: '22'
       - uses: actions/setup-python@v5
-        if: runner.os == 'Linux'
         with:
           python-version: '3.11'
       - name: 安装固定 MoonBit 工具链
@@ -56,6 +55,7 @@ jobs:
           node --test tests/cli.test.mjs
           node tests/demo-report.mjs
           node tests/report-contract.mjs
+          python tests/pad-centroid-oracle.py
       - name: 记录 MoonBit 库覆盖率
         if: runner.os == 'Linux'
         run: |
@@ -121,6 +121,7 @@ jobs:
             _build/real-panel
             _build/panel-benchmark.json
             _build/coverage-summary.txt
+            _build/pad-boundary/
           if-no-files-found: ignore
       - uses: actions/upload-pages-artifact@v4
         if: runner.os == 'Linux' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'

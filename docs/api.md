@@ -20,6 +20,7 @@ pkgtype(kind: "executable")
 | 读取铜层 | `parse_gerber(text, source=...)`。无效或不支持的输入抛出 `GerberError` |
 | 只核对某个拼板单元 | 对已有整板文档调用 `select_panel_cell`。GitHub 主分支还提供 `parse_gerber_cell`，可直接解析指定单元 |
 | 比较坐标表并核验所传板面 | `audit(baseline, delivery, policy, top_gerber=Some(top), bottom_gerber=Some(bottom))`。可省略任一未提供的铜层 |
+| 显式处理板面或铜层用途冲突 | GitHub 主分支的 `audit_checked` 调用方式与 `audit` 相同，遇到明确冲突时抛出带源文件名的 `InputError`。同一主分支的 `audit` 会返回 `Indeterminate` 和 `invalid_gerber_layer` |
 | 保存证据 | `AuditResult.report` 是 JSON v3；`render_html(result.report, baseline)` 返回可离线打开的 HTML 字符串 |
 | 自己做点集配准 | `register` 支持刚体、相似和仿射模型，返回变换与基准点残差 |
 

@@ -74,6 +74,25 @@ test('mobile panel selection shows the Gerber error and clears a stale result', 
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
 });
 
+test('rejects a layer explicitly declared as bottom copper in the top slot', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#baseline').setInputFiles(example('baseline.csv'));
+  await page.locator('#delivery').setInputFiles(example('delivery-ok.csv'));
+  await page.locator('#policy').setInputFiles(example('policy.json'));
+  const top = await readFile(example('gerber/panel-cell-2x2.gbr'), 'utf8');
+  await page.locator('#top').setInputFiles({
+    name: 'declared-bottom.gbr',
+    mimeType: 'text/plain',
+    buffer: Buffer.from(top.replace('Copper,L1,Top', 'Copper,L2,Bot')),
+  });
+  await page.getByRole('checkbox', { name: '按 SR 拼板单元核对' }).check();
+  await page.getByRole('button', { name: '开始核对' }).click();
+  await expect(page.getByRole('status')).toHaveText('输入有误');
+  await expect(page.locator('#result-detail')).toContainText('declared-bottom.gbr');
+  await expect(page.locator('#result-detail')).toContainText('.FileFunction 与顶层铜输入不符');
+  await expect(page.locator('#report-frame')).toBeHidden();
+});
+
 test('a browser without Workers displays a usable error', async ({ page }) => {
   await page.addInitScript(() => { window.Worker = undefined; });
   await page.goto('/');
