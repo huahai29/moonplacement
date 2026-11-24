@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { injectedOffsetMm } from './acceptance-doc.mjs';
 import { regenerateHtml } from './generated-html.mjs';
 
 const source = 'examples/hardware/ht42b534/HT42B534USB2UART.kicad_pcb';
@@ -124,11 +125,11 @@ for (const { row, column, refs } of cells) {
   assert.ok(sr.panel_cells.every(cell => cell.row === row && cell.column === column));
   outcomes.push({ row, column, native: clean.status, sr: sr.status, checked: sr.pad_checked });
   if (row !== 2 || column !== 2) continue;
-  const corrupted = records.map(item => item.ref === refs.D1 ? { ...item, x: item.x + 0.30 } : item);
+  const corrupted = records.map(item => item.ref === refs.D1 ? { ...item, x: item.x + injectedOffsetMm } : item);
   const wrong = writePlacements('native-wrong-' + id, corrupted);
   const bad = audit('native-wrong-' + id, scoped, wrong, nativePolicy, nativeLayers, [], 1);
   const badLocal = writePlacements('sr-wrong-' + id, localRecords.map(item =>
-    item.ref === 'D1' ? { ...item, x: item.x + 0.30 } : item));
+    item.ref === 'D1' ? { ...item, x: item.x + injectedOffsetMm } : item));
   const badSr = audit('sr-wrong-' + id, baseline, badLocal, srPolicy, srLayers,
     ['--panel-cell', `${row},${column}`], 1);
   const common = audit('sr-both-tables-wrong-' + id, badLocal, badLocal, srPolicy, srLayers,
@@ -136,10 +137,10 @@ for (const { row, column, refs } of cells) {
   for (const [report, ref] of [[bad, refs.D1], [badSr, 'D1'], [common, 'D1']]) {
     assert.equal(report.status, 'different');
     assert.deepEqual(report.pad_differences.map(item => [item.ref, item.kind]), [[ref, 'pad_offset']]);
-    assert.ok(Math.abs(report.pad_differences[0].distance_mm - 0.30) < 0.001);
+    assert.ok(Math.abs(report.pad_differences[0].distance_mm - injectedOffsetMm) < 0.001);
   }
   assert.deepEqual(common.differences, []);
-  outcomes.at(-1).injected = { panel_ref: refs.D1, local_ref: 'D1', x_mm: 0.30,
+  outcomes.at(-1).injected = { panel_ref: refs.D1, local_ref: 'D1', x_mm: injectedOffsetMm,
     pad_distance_mm: common.pad_differences[0].distance_mm };
 }
 const largeLayers = srLayers.map((file, index) => {
@@ -156,9 +157,9 @@ const wrong10 = audit('sr-both-tables-wrong-10-10', join(dir, 'sr-wrong-2-2.csv'
   join(dir, 'sr-wrong-2-2.csv'), srPolicy, largeLayers, ['--panel-cell', '10,10'], 1);
 assert.deepEqual(wrong10.differences, []);
 assert.deepEqual(wrong10.pad_differences.map(item => [item.ref, item.kind]), [['D1', 'pad_offset']]);
-assert.ok(Math.abs(wrong10.pad_differences[0].distance_mm - 0.30) < 0.001);
+assert.ok(Math.abs(wrong10.pad_differences[0].distance_mm - injectedOffsetMm) < 0.001);
 const largePanel = { row: 10, column: 10, status: large.status, checked: large.pad_checked,
-  injected: { ref: 'D1', x_mm: 0.30, pad_distance_mm: wrong10.pad_differences[0].distance_mm } };
+  injected: { ref: 'D1', x_mm: injectedOffsetMm, pad_distance_mm: wrong10.pad_differences[0].distance_mm } };
 writeFileSync(join(dir, 'acceptance.json'), JSON.stringify({
   kicad: version, source_sha256: sourceDigest, scoped_refs: scope, outcomes, large_panel: largePanel,
 }, null, 2) + '\n');

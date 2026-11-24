@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { syncMarkdownSection } from './acceptance-doc.mjs';
 import { regenerateHtml } from './generated-html.mjs';
 
 const args = process.argv.slice(2);
@@ -33,34 +34,26 @@ const [{ row, column }] = copper.panel_cells;
 assert.equal(row, 2);
 assert.equal(column, 2);
 const distance = copper.pad_differences[0].distance_mm.toFixed(2);
-const start = '<!-- demo-summary:start -->';
-const end = '<!-- demo-summary:end -->';
-const summary = [
-  start,
-  '',
+syncMarkdownSection('README.md', 'demo-summary', [
   `两张坐标表都把 D1 标在同一位置。只核对两表会得到 \`${positions.status}\`。加上 Gerber，`,
   `第 ${row} 行第 ${column} 列的铜层报告变为 \`${copper.status}\`，指出 D1 偏移 **${distance} mm**。`,
-  '',
-  end,
-].join('\n');
+], write);
 const read = path => readFileSync(path, 'utf8').replaceAll('\r\n', '\n');
-const readme = read('README.md');
-const from = readme.indexOf(start);
-const to = readme.indexOf(end, from);
-assert.ok(from >= 0 && to > from, 'README demo markers missing');
 const snapshot = join(demo, 'panel-d1.html');
 if (write) {
   mkdirSync(demo, { recursive: true });
   writeFileSync(snapshot, read(html));
-  writeFileSync('README.md', readme.slice(0, from) + summary + readme.slice(to + end.length));
 } else {
-  assert.equal(readme.slice(from, to + end.length), summary, 'README demo is stale');
   assert.equal(read(snapshot), read(html), 'offline HTML report is stale');
 }
 
 const macro = audit(0, 'examples/gerber/macro-two-holes.gbr');
 const d1 = macro.pad_evidence.find(({ ref }) => ref === 'D1').evidence;
-const macroCase = read('docs/gerber-acceptance.md').split('\n')
-  .find(line => line.includes('macro-two-holes.gbr') && line.includes('几何中心'));
-assert.ok(macroCase?.includes(`约 ${d1.distance_mm.toFixed(3)} mm`), 'double-hole macro distance is stale');
+assert.equal(d1.within_tolerance, true);
+syncMarkdownSection('docs/acceptance-results.md', 'builtin-results', [
+  '| 案例 | 结论 |',
+  '| --- | --- |',
+  `| 2×2 拼板的第 ${row} 行、第 ${column} 列 | 两表为 \`${positions.status}\`，加入铜层后为 \`${copper.status}\`。D1 偏移 ${distance} mm |`,
+  `| 变换双孔宏 | \`${macro.status}\`。D1 的铜形几何中心偏离约 ${d1.distance_mm.toFixed(3)} mm，仍在 ${macro.tolerances.pad_mm} mm 容差内 |`,
+], write);
 console.log(`D1 demo: ${positions.status} → ${copper.status}, ${distance} mm`);

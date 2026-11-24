@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { injectedOffsetMm, padCenterToleranceMm } from './acceptance-doc.mjs';
 import { regenerateHtml } from './generated-html.mjs';
 
 const board = 'examples/two-sided.kicad_pcb';
@@ -81,11 +82,6 @@ function shiftC7(input, name, shiftInFileUnits) {
 
 const baseline = join(dir, 'baseline.csv');
 exportPosition(baseline, 'mm');
-const padCenterToleranceMm = 0.001;
-const documentedRoundRect = readFileSync('docs/gerber-acceptance.md', 'utf8').split(/\r?\n/)
-  .find(line => line.includes('U3 的通过条件'));
-assert.ok(documentedRoundRect?.includes(`中心偏差小于 ${padCenterToleranceMm} mm`),
-  'documented KiCad RoundRect tolerance is stale');
 let negatedDelivery;
 for (const mirror of ['direct', 'negated']) {
   const delivery = join(dir, `delivery-${mirror}.csv`);
@@ -113,10 +109,10 @@ for (const mirror of ['direct', 'negated']) {
   if (mirror === 'negated') negatedDelivery = delivery;
 }
 
-const movedDelivery = shiftC7(negatedDelivery, 'delivery-c7-moved', 0.30 / 25.4);
+const movedDelivery = shiftC7(negatedDelivery, 'delivery-c7-moved', injectedOffsetMm / 25.4);
 const moved = audit('wrong-delivery', baseline, movedDelivery, 1);
 assert.deepEqual(moved.differences.map(({ ref, kind }) => [ref, kind]), [['C7', 'position']]);
-const movedBaseline = shiftC7(baseline, 'baseline-c7-moved', 0.30);
+const movedBaseline = shiftC7(baseline, 'baseline-c7-moved', injectedOffsetMm);
 const csvOnly = JSON.parse(run(process.execPath, [cli, movedBaseline, movedDelivery, policy]));
 assert.equal(csvOnly.status, 'pass');
 writeFileSync(join(dir, 'both-moved-csv-only.json'), `${JSON.stringify(csvOnly, null, 2)}\n`);
@@ -125,5 +121,5 @@ assert.deepEqual(sameError.differences, []);
 for (const report of [moved, sameError]) {
   assert.equal(report.status, 'different');
   assert.deepEqual(report.pad_differences.map(({ ref, kind }) => [ref, kind]), [['C7', 'pad_offset']]);
-  assert.ok(Math.abs(report.pad_differences[0].distance_mm - 0.30) < 0.001);
+  assert.ok(Math.abs(report.pad_differences[0].distance_mm - injectedOffsetMm) < 0.001);
 }

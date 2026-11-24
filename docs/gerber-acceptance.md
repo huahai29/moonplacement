@@ -47,7 +47,7 @@
 
 ## 输入、命令和实测输出
 
-三组用例沿用同一份设计表、送厂表和配置，只更换顶层铜层。也可先复跑 [KiCad 双面实导出案例](../examples/README.md#铜层实导出验证)，查看顶面 U3 倾斜的圆角焊盘，以及 C7 在两张表同时偏移时如何由铜层检出。U3 的通过条件是实导出中确有 `RoundRect` 定义和调用，报告按 U3 位号找到一块铜且中心偏差小于 0.001 mm。MoonBit 单测另用可独立计算的几何对照验证合成面积、铜形几何中心、外部变换和圆角边界。
+三组用例沿用同一份设计表、送厂表和配置，只更换顶层铜层。也可先复跑 [KiCad 双面实导出案例](../examples/README.md#铜层实导出验证)，查看顶面 U3 倾斜的圆角焊盘，以及 C7 在两张表同时偏移时如何由铜层检出。U3 的验收会检查 `RoundRect` 定义与调用、位号归属和中心偏差。[通过判据与结果](acceptance-results.md#kicad-双面实导出)由测试生成。MoonBit 单测另用可独立计算的几何对照验证合成面积、铜形几何中心、外部变换和圆角边界。
 
 ```sh
 moon build --target js
@@ -90,7 +90,7 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 | 输入 | 预期和实测 |
 | --- | --- |
 | [清除铜区含圆孔](../examples/gerber/region-cut-in.gbr) | 清除区覆盖 C1，D1 位于半径 1 mm 的透明孔内。仅 C1 标为待复查，D1 照常核验 |
-| [变换双孔宏](../examples/gerber/macro-two-holes.gbr) | 不同大小的圆孔扣除后，D1 的铜形几何中心偏移约 0.060 mm，仍在 0.1 mm 容差内 |
+| [变换双孔宏](../examples/gerber/macro-two-holes.gbr) | 扣除两个不同大小的圆孔后，D1 的铜形几何中心仍在容差内。[测量值](acceptance-results.md#内置-gerber-样例) |
 
 [实测 JSON 摘录](../examples/gerber/results.json)保留两组结果。铜区弧段以 0.001 mm 弦高为目标，达到分段上限时使用实际弦高，并计入起止半径差。边界误差带内不确认新增铜证据，清除按可能覆盖判断。多个 D02 轮廓各自填充后取并集，不把内轮廓自动解释成孔。见 [Gerber 2024.05 §4.10](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf#page=90)。
 
@@ -102,7 +102,7 @@ KiCad 实导出同时验证圆角 U3 和带对称切角的 R2。热焊盘的环�
 
 按 [Gerber 2024.05 §4.12](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf#page=116) 先沿 Y 再沿 X 复制完整对象组，保留清除与绘制先后。每组最多 10000 个单元，每层累计展开最多 200000 个对象及轮廓顶点；超过限制返回输入错误。
 
-[2×2 单元验收](../examples/README.md#核对拼板单元)用 `--panel-cell` 逐块核对。三块正常单元通过，第 2 行第 2 列报告 D1 偏移约 0.30 mm。该位号的四块焊盘单独写出，只移动最后一块；其余器件由 `SR` 生成。回归另检查重叠、跨界、不一致的双面网格，以及后绘制的清除对象。
+[2×2 单元验收](../examples/README.md#核对拼板单元)用 `--panel-cell` 逐块核对。三块正常单元通过，第 2 行第 2 列报告 D1 偏移。[测量值](acceptance-results.md#内置-gerber-样例)来自同一次验收。该位号的四块焊盘单独写出，只移动最后一块；其余器件由 `SR` 生成。回归另检查重叠、跨界、不一致的双面网格，以及后绘制的清除对象。
 
 ### 块光圈与独立对照
 

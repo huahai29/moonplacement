@@ -46,13 +46,15 @@ node tests/kicad-export.mjs
 
 | 用例 | 预期结果 |
 | --- | --- |
-| 两种底面 X 约定的正常导出 | `pass`，6 颗按位号核验。顶面 U3 为倾斜的 `RoundRect` 宏焊盘，中心偏差小于 0.001 mm。R2 的切角轮廓宏也按位号核验且中心偏差小于 0.001 mm。底面 C7 归集为一组双焊盘 |
-| 只有送厂表的 C7 偏移 0.30 mm | `different`，两表位置和铜层均指出底面 C7 |
-| 两份表的 C7 同时偏移 0.30 mm | 仅查两表为 `pass`，加入原铜层后为 `different`，唯一差异是 C7 的 `pad_offset` |
+| 两种底面 X 约定的正常导出 | `pass`。U3 圆角宏和 R2 切角轮廓宏按位号核验，底面 C7 归集为一组双焊盘 |
+| 只移动送厂表的 C7 | `different`，两表位置和铜层均指出底面 C7 |
+| 同时移动两张表的 C7 | 仅查两表为 `pass`，加入原铜层后为 `different`，唯一差异是 C7 的 `pad_offset` |
+
+[按位号核验数、中心偏差门槛和偏位量](../docs/acceptance-results.md#kicad-双面实导出)由验收报告生成。
 
 ## 核对拼板单元
 
-使用第一块单元的设计和送厂坐标表。下面的样例间距是 40 mm，第 2 行第 2 列的 D1 单独向 X 正方向偏移了 0.30 mm：
+使用第一块单元的设计和送厂坐标表。下面的样例间距是 40 mm，第 2 行第 2 列的 D1 单独沿 X 正方向偏移。[测量结果](../docs/acceptance-results.md#内置-gerber-样例)
 
 ```sh
 moon build --target js

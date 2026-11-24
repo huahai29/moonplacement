@@ -7,7 +7,12 @@ import { "huahai29/moonplacement" @mp, }
 pkgtype(kind: "executable")
 ```
 
-把[完整示例](../examples/library/main.mbt.example)保存成这个包的 `main.mbt`，在该包目录运行 `moon run . --target js` 或 `moon run . --target wasm-gc`。示例直接传入两份表和配置，输出 `different`，指出 D1 的位置偏差约 0.30 mm。[独立安装验证](release-0.1.1.md)
+把下面任一示例保存成这个包的 `main.mbt`，在该包目录运行 `moon run . --target js` 或 `moon run . --target wasm-gc`。输入已嵌入代码，可以直接运行。
+
+- [两表对比](../examples/library/main.mbt.example)读取设计表和送厂表，调用 `audit` 并输出 D1 的位置差异。
+- [拼板核对与复查](../examples/library/panel.mbt.example)读取两份表和顶层 Gerber，选第 2 行第 2 列，再调用 `audit`。D1 的位置有铜但缺少位号归属，示例从 `pad_evidence` 提取复查项，输出 `indeterminate`、原因 `insufficient_pad_evidence` 和 D1 的 `copper_only` 证据。
+
+两个示例都使用 Mooncakes `0.1.1` 已有的 API。[独立安装验证](release-0.1.1.md)
 
 | 要做什么 | 入口 |
 | --- | --- |

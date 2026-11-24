@@ -96,6 +96,9 @@ jobs:
       - name: 开源实板拼板验收
         if: runner.os == 'Linux'
         run: node tests/kicad-panel.mjs
+      - name: 校验真实导出与拼板的文档数字
+        if: runner.os == 'Linux'
+        run: node tests/kicad-acceptance-doc.mjs
       - name: 记录拼板性能及核验结果
         if: runner.os == 'Linux'
         run: |

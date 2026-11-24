@@ -1,0 +1,74 @@
+// Run as main.mbt in a package that imports "huahai29/moonplacement" @mp.
+fn main {
+  let csv =
+    #| Ref,PosX,PosY,Rot,Side
+    #| A1,1,1,0,top
+    #| A2,7,1,0,top
+    #| A3,1,7,0,top
+    #| D1,4,4,0,top
+  let baseline = @mp.read_placements(csv, source="design.csv") catch {
+    _ => abort("cannot read design table")
+  }
+  // This example uses matching tables to isolate the missing copper evidence.
+  let delivery = @mp.read_placements(csv, source="delivery.csv") catch {
+    _ => abort("cannot read delivery table")
+  }
+  let policy = @mp.read_policy(
+    #| {
+    #|   "baseline": {"unit":"mm","bottom_x":"direct","angle_sign":1,"top_angle_offset_deg":0,"bottom_angle_offset_deg":0},
+    #|   "delivery": {"unit":"mm","bottom_x":"direct","angle_sign":1,"top_angle_offset_deg":0,"bottom_angle_offset_deg":0},
+    #|   "anchors": ["A1","A2","A3"], "rotation": "0",
+    #|   "position_tolerance_mm": 0.05, "angle_tolerance_deg": 1, "anchor_tolerance_mm": 0.02
+    #| }
+    ,
+  ) catch {
+    _ => abort("cannot read policy")
+  }
+  let panel = @mp.parse_gerber(
+    #| %FSLAX46Y46*%
+    #| %MOMM*%
+    #| %ADD10C,0.4*%
+    #| D10*%SRX2Y2I20J20*%
+    #| %TO.P,A1,1*%X1000000Y1000000D03*
+    #| %TO.P,A2,1*%X7000000Y1000000D03*
+    #| %TO.P,A3,1*%X1000000Y7000000D03*
+    #| %TD*%X4000000Y4000000D03*
+    #| %SR*%M02*
+    ,
+    source="top.gbr",
+  ) catch {
+    _ => abort("cannot read Gerber")
+  }
+  let top = @mp.select_panel_cell(panel, row=2, column=2, source="top.gbr") catch {
+    _ => abort("cannot select Gerber cell")
+  }
+  let result = @mp.audit(baseline, delivery, policy, top_gerber=Some(top))
+  if result.verdict is @mp.Indeterminate {
+    print_review_queue(result.report)
+  } else {
+    println(result.report.stringify(indent=2))
+  }
+}
+
+fn print_review_queue(report : Json) -> Unit {
+  guard report is {
+    "reason": String(reason), "pad_evidence": Array(evidence), "panel_cells": Array(cells), ..,
+  } else {
+    abort("missing audit report fields")
+  }
+  let needs_review : Array[Json] = []
+  for item in evidence {
+    if item is {
+      "ref": String(refdes), "side": String(side), "evidence": { "status": String(status), .. }, ..,
+    } && status != "by_reference" {
+      needs_review.push({ "ref": Json(refdes), "side": Json(side), "evidence": Json(status) })
+    }
+  }
+  let summary : Json = {
+    "status": Json("indeterminate"),
+    "reason": Json(reason),
+    "panel_cells": Json(cells),
+    "needs_review": Json(needs_review),
+  }
+  println(summary.stringify(indent=2))
+}

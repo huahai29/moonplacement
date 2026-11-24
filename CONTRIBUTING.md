@@ -31,4 +31,6 @@ npm --prefix web test
 
 有意修改报告定义时，先构建 debug 目标，再运行 `node tests/report-contract.mjs --write`。裸命令会核对生成文件和四种 CLI 状态。
 
+更新验收结果时，运行 `node tests/demo-report.mjs --write`。安装 KiCad 和 `pcbnew` 后，先运行 `node tests/kicad-export.mjs` 与 `node tests/kicad-panel.mjs`，再运行 `node tests/kicad-acceptance-doc.mjs --write`。省略 `--write` 只校验已提交的[验收摘要](docs/acceptance-results.md)。
+
 CI 的 MoonBit 覆盖率门槛在 [tests/coverage-budget.json](tests/coverage-budget.json)。Linux 输出按文件统计。该统计来自 MoonBit 库测试，浏览器和 CLI 用例另行运行。
