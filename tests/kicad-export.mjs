@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { regenerateHtml } from './generated-html.mjs';
 
 const board = 'examples/two-sided.kicad_pcb';
 const dir = '_build/kicad-evidence';
@@ -46,7 +47,8 @@ function exportPosition(file, unit, flags = []) {
 }
 
 function audit(name, baseline, delivery, exit) {
-  const output = run(process.execPath, [cli, baseline, delivery, policy, top, bottom, '--html', join(dir, `${name}.html`)], exit);
+  const output = regenerateHtml(join(dir, `${name}.html`), html =>
+    run(process.execPath, [cli, baseline, delivery, policy, top, bottom, '--html', html], exit));
   writeFileSync(join(dir, `${name}.json`), output);
   const report = JSON.parse(output);
   console.log(`${name}: ${report.status}, ${report.pad_checked} by reference, ${report.pad_differences.length} copper difference(s)`);

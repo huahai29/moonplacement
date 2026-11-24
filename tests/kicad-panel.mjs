@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { regenerateHtml } from './generated-html.mjs';
 
 const source = 'examples/hardware/ht42b534/HT42B534USB2UART.kicad_pcb';
 const dir = '_build/real-panel';
@@ -70,9 +71,8 @@ function writePolicy(name, refs) {
 }
 
 function audit(name, baseline, delivery, policy, layers, selector, exit) {
-  const html = join(dir, name + '.html');
-  const output = run(process.execPath, [cli, baseline, delivery, policy, ...layers,
-    ...selector, '--html', html], exit);
+  const output = regenerateHtml(join(dir, name + '.html'), html =>
+    run(process.execPath, [cli, baseline, delivery, policy, ...layers, ...selector, '--html', html], exit));
   writeFileSync(join(dir, name + '.json'), output);
   return JSON.parse(output);
 }

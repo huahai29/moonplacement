@@ -40,7 +40,7 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/delivery-ok.csv examples/policy.json examples/gerber/panel-cell-2x2.gbr --panel-cell 2,2 --html _build/report.html
 ```
 
-退出码 1 表示发现差异，报告写到 `_build/report.html`。
+退出码 1 表示发现差异，报告写到 `_build/report.html`。输出需要使用新文件名，重复运行可换一个名字。目标目录须已存在，并支持硬链接。
 
 ## 核对自己的板子
 
@@ -55,7 +55,7 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 | 0 | `pass` | 已完成所要求的核对，未发现差异 |
 | 1 | `different` | 已确认差异 |
 | 2 | `indeterminate` | 对齐或铜层证据不足，需复查 |
-| 64 | `input_error` | 输入文件、参数或数据无效 |
+| 64 | `input_error` | 输入有误，或无法生成请求的报告 |
 
 ## 可复现案例
 

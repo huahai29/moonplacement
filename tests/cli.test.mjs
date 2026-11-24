@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFile, spawnSync } from 'node:child_process';
+import { copyFileSync, linkSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -11,8 +11,8 @@ const delivery = 'examples/delivery-ok.csv';
 const policy = 'examples/policy.json';
 const gerberExamples = 'examples/gerber';
 
-function run(args, expectedExit) {
-  const result = spawnSync(process.execPath, [bin, ...args], { encoding: 'utf8' });
+function run(args, expectedExit, nodeArgs = []) {
+  const result = spawnSync(process.execPath, [...nodeArgs, bin, ...args], { encoding: 'utf8' });
   assert.ifError(result.error);
   assert.equal(result.status, expectedExit, result.stderr || result.stdout);
   return JSON.parse(result.stdout);
@@ -102,9 +102,9 @@ test('selects each cell of a 2x2 panel and identifies only the shifted D1', t =>
   const work = mkdtempSync(join(tmpdir(), 'moonplacement-cell-'));
   t.after(() => rmSync(work, { recursive: true, force: true }));
   const panel = join(gerberExamples, 'panel-cell-2x2.gbr');
-  const html = join(work, 'cell.html');
   for (const row of [1, 2]) {
     for (const column of [1, 2]) {
+      const html = join(work, `cell-${row}-${column}.html`);
       const shifted = row === 2 && column === 2;
       const report = run([baseline, delivery, policy, panel, '--panel-cell', `${row},${column}`, '--html', html],
         shifted ? 1 : 0);
@@ -375,6 +375,99 @@ test('writes an HTML report with a board map', t => {
   const html = readFileSync(target, 'utf8');
   assert.match(html, /<svg/);
   assert.match(html, /MoonPlacement/);
+  const refused = run([baseline, delivery, policy, '--html', target], 64);
+  assert.equal(refused.field, target);
+  assert.match(refused.message, /目标已存在/);
+  assert.equal(readFileSync(target, 'utf8'), html);
+  assert.deepEqual(readdirSync(directory), ['report.html']);
+});
+
+test('keeps input and aliases intact when they are selected as the report target', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'moonplacement-protect-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const input = join(directory, '设计.csv');
+  const hardLink = join(directory, '现有报告.html');
+  copyFileSync(baseline, input);
+  linkSync(input, hardLink);
+  const targets = [input, hardLink];
+  if (process.platform !== 'win32') {
+    const symbolicLink = join(directory, '悬空报告.html');
+    symlinkSync(join(directory, '不存在.html'), symbolicLink);
+    targets.push(symbolicLink);
+  }
+  const entries = readdirSync(directory).sort();
+  const original = readFileSync(input);
+  for (const target of targets) {
+    const report = run([input, delivery, policy, '--html', target], 64);
+    assert.equal(report.field, target);
+    assert.equal(report.status, 'input_error');
+    assert.match(report.message, /目标已存在/);
+    assert.deepEqual(readFileSync(input), original);
+    assert.deepEqual(readFileSync(hardLink), original);
+    assert.deepEqual(readdirSync(directory).sort(), entries);
+  }
+});
+
+test('two writers to the same path produce exactly one complete report', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'moonplacement-race-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const target = join(directory, '核对报告.html');
+  const args = [bin, baseline, delivery, policy, '--html', target];
+  const start = () => new Promise((resolve, reject) => {
+    execFile(process.execPath, args, (error, stdout, stderr) => {
+      if (error && error.code !== 64) {
+        reject(new Error(stderr || error.message));
+        return;
+      }
+      try {
+        resolve({ exit: error ? 64 : 0, report: JSON.parse(stdout) });
+      } catch (parseError) {
+        reject(parseError);
+      }
+    });
+  });
+  const results = await Promise.all([start(), start()]);
+  assert.deepEqual(results.map(item => item.exit).sort((a, b) => a - b), [0, 64]);
+  const winner = results.find(item => item.exit === 0);
+  const loser = results.find(item => item.exit === 64);
+  assert.equal(winner.report.status, 'pass');
+  assert.equal(loser.report.field, target);
+  assert.match(loser.report.message, /目标已存在/);
+  assert.match(readFileSync(target, 'utf8'), /<\/html>\s*$/);
+  assert.deepEqual(readdirSync(directory), ['核对报告.html']);
+});
+
+test('cleans staged reports after a partial write or an unsupported file system', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'moonplacement-stage-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const target = join(directory, 'report.html');
+  const preload = join(directory, 'failure.cjs');
+  const args = [baseline, delivery, policy, '--html', target];
+  const faultCases = [
+    ['ENOSPC', `fs.writeFileSync = path => {
+      originalWrite(path, 'partial report');
+      throw Object.assign(new Error('disk full'), { code: 'ENOSPC' });
+    };`],
+    ['ENOTSUP', `fs.linkSync = () => {
+      throw Object.assign(new Error('links unsupported'), { code: 'ENOTSUP' });
+    };`],
+  ];
+  for (const [code, failure] of faultCases) {
+    writeFileSync(preload, `const fs = require('node:fs');
+      const originalWrite = fs.writeFileSync; ${failure}`);
+    const report = run(args, 64, ['--require', preload]);
+    assert.equal(report.status, 'input_error');
+    assert.equal(report.field, target);
+    assert.ok(report.message.includes(code), report.message);
+    assert.deepEqual(readdirSync(directory), ['failure.cjs']);
+  }
+  const missingParent = join(directory, 'missing', 'report.html');
+  const missing = run([baseline, delivery, policy, '--html', missingParent], 64);
+  assert.equal(missing.field, missingParent);
+  assert.match(missing.message, /ENOENT/);
+  assert.deepEqual(readdirSync(directory), ['failure.cjs']);
+  assert.equal(run(args, 0).status, 'pass');
+  assert.match(readFileSync(target, 'utf8'), /<\/html>\s*$/);
 });
 
 test('invalid arguments and files return a structured input error', t => {
@@ -383,6 +476,11 @@ test('invalid arguments and files return a structured input error', t => {
   assert.equal(invalid.schema_version, 3);
   assert.equal(run([baseline, 'examples/missing.csv', policy], 64).field, 'examples/missing.csv');
   assert.equal(run([baseline, 'examples', policy], 64).field, 'examples');
+  const inputs = [baseline, delivery, policy];
+  for (const flags of [['--html'], ['--html', ''], ['--html', '--panel-cell', '1,1'],
+    ['--html', 'first.html', '--html', 'second.html']]) {
+    assert.equal(run([...inputs, ...flags], 64).field, 'html');
+  }
 
   const directory = mkdtempSync(join(tmpdir(), 'moonplacement-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));

@@ -42,15 +42,44 @@ extern "js" fn file_error(file : FileRead) -> String = "(file) => file.error ?? 
 extern "js" fn file_text(file : FileRead) -> String = "(file) => file.text ?? ''"
 
 ///|
-extern "js" fn write_file(path : String, text : String) -> String =
-  #| (path, text) => {
-  #|   try {
-  #|     const fs = process.getBuiltinModule('node:fs');
-  #|     fs.writeFileSync(path, text);
-  #|     return '';
-  #|   } catch (error) {
-  #|     return error.code ?? error.message;
+extern "js" fn publish_html(filename : String, text : String) -> String =
+  #| (filename, text) => {
+  #|   const fs = process.getBuiltinModule('node:fs');
+  #|   const paths = process.getBuiltinModule('node:path');
+  #|   const basename = paths.basename(filename);
+  #|   if (!basename || basename === '.' || basename === '..' ||
+  #|       filename.endsWith('/') || (process.platform === 'win32' && filename.endsWith('\\'))) {
+  #|     return '请指定新文件名';
   #|   }
+  #|   let staging;
+  #|   let temporary;
+  #|   let failure = '';
+  #|   try {
+  #|     const parent = fs.realpathSync.native(paths.dirname(filename));
+  #|     const target = paths.join(parent, basename);
+  #|     staging = fs.mkdtempSync(paths.join(parent, '.moonplacement-'));
+  #|     temporary = paths.join(staging, 'report.html');
+  #|     fs.writeFileSync(temporary, text, { encoding: 'utf8', flag: 'wx', flush: true });
+  #|     // Publish only after writing and closing the complete file. Linking
+  #|     // creates the destination without replacing a racing directory entry.
+  #|     fs.linkSync(temporary, target);
+  #|   } catch (error) {
+  #|     failure = error.code === 'EEXIST'
+  #|       ? '目标已存在，请换一个新文件名 (EEXIST)'
+  #|       : error.code ?? error.message;
+  #|   } finally {
+  #|     if (staging) {
+  #|       try {
+  #|         fs.rmSync(temporary, { force: true });
+  #|         fs.rmdirSync(staging);
+  #|       } catch {
+  #|         const warning = '暂存目录清理失败：' + staging;
+  #|         if (failure) failure += '。' + warning;
+  #|         else console.error(warning);
+  #|       }
+  #|     }
+  #|   }
+  #|   return failure;
   #| }
 
 ///|
@@ -108,7 +137,15 @@ fn parse_args() -> CliArgs raise @placement.InputError {
   let mut index = 0
   while index < arg_count() {
     let value = arg(index)
-    if value == "--html" && index + 1 < arg_count() {
+    if value == "--html" {
+      if html is Some(_) ||
+        index + 1 >= arg_count() ||
+        arg(index + 1).is_empty() ||
+        arg(index + 1).has_prefix("--") {
+        raise @placement.InvalidInput(
+          "html", "--html 需要且只能提供一次新报告文件名",
+        )
+      }
       html = Some(arg(index + 1))
       index += 2
     } else if value == "--panel-cell" {
@@ -205,7 +242,7 @@ fn run() -> Int32 raise @placement.InputError {
   match args.html {
     Some(path) => {
       let html = @placement.render_html(result.report, baseline)
-      let error = write_file(path, html)
+      let error = publish_html(path, html)
       if !error.is_empty() {
         raise @placement.InvalidInput(
           path,

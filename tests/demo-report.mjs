@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { regenerateHtml } from './generated-html.mjs';
 
 const args = process.argv.slice(2);
 assert.ok(args.length === 0 || (args.length === 1 && args[0] === '--write'),
@@ -22,7 +23,8 @@ function audit(expectedExit, ...extra) {
 }
 
 const positions = audit(0);
-const copper = audit(1, 'examples/gerber/panel-cell-2x2.gbr', '--panel-cell', '2,2', '--html', html);
+const copper = regenerateHtml(html, output =>
+  audit(1, 'examples/gerber/panel-cell-2x2.gbr', '--panel-cell', '2,2', '--html', output));
 assert.equal(positions.status, 'pass');
 assert.equal(copper.status, 'different');
 assert.deepEqual(copper.differences, []);
