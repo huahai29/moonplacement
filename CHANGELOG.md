@@ -1,6 +1,6 @@
 # 更新记录
 
-## 未发布
+## 0.2.0
 
 - CI 校验公开库接口快照并将测试告警视为失败。Windows 和 Linux 都构建 Release 版，并执行刚体、相似、仿射配准与最小最大残差的独立数值对照。
 - 库调用方可用 `Point::new` 构造毫米坐标并直接选择 `Rigid`、`Similarity` 或 `Affine` 模型调用 `register`。
@@ -15,6 +15,8 @@
 - 新增库入口 `parse_gerber_cell`。调用方式及单元分隔要求见[拼板单元](docs/audit.md#拼板单元)。
 - 补充架构、公共 API、第三方来源和可离线打开的 D1 报告。CI 核对演示摘要、保存 MoonBit 库覆盖率，并检查拼板单元的对象数。
 - 加入浏览器工作台和 Playwright 端到端测试。CLI 提供 `--report-schema`，导出 MoonBit 生成的报告契约。CI 检查库覆盖率门槛和 10×10 算例的峰值进程内存。
+
+见[版本与验收](docs/release-0.2.0.md)。
 
 ## 0.1.1
 

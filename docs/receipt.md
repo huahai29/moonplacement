@@ -6,7 +6,7 @@
 
 在[在线工作台](https://huahai29.github.io/moonplacement/)跑完核对后，点击「下载核验凭据」。文件与指纹均在浏览器内处理。浏览器需要 HTTPS 或 localhost 才能使用用于计算指纹的 Web Crypto。浏览器无法计算指纹时，仍可下载普通 JSON 和 HTML。
 
-从 GitHub 主分支构建 CLI 后，可用 D1 示例生成一份凭据：
+从 0.2.0 源码构建 CLI 后，可用 D1 示例生成一份凭据：
 
 ```sh
 moon build --target js

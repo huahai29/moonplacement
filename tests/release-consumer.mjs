@@ -38,9 +38,11 @@ put('moon.mod', local
 const consumerPackage = `import { "${mod}" @mp, }\npkgtype(kind: "executable")\n`;
 put('moon.pkg', consumerPackage);
 put('main.mbt', readFileSync('examples/library/main.mbt.example', 'utf8'));
-mkdirSync(join(work, 'panel'));
-put('panel/moon.pkg', consumerPackage);
-put('panel/main.mbt', readFileSync('examples/library/panel.mbt.example', 'utf8'));
+for (const example of ['panel', 'register']) {
+  mkdirSync(join(work, example));
+  put(`${example}/moon.pkg`, consumerPackage);
+  put(`${example}/main.mbt`, readFileSync(`examples/library/${example}.mbt.example`, 'utf8'));
+}
 if (!local) call('add', `${mod}@${version}`);
 
 const backendReports = {};
@@ -61,12 +63,18 @@ for (const target of ['js', 'wasm-gc']) {
     side: 'top', row: 2, column: 2, rows: 2, columns: 2, offset_x_mm: 20, offset_y_mm: 20,
   }]);
   assert.deepEqual(panel.needs_review, [{ ref: 'D1', side: 'top', evidence: 'copper_only' }]);
+  const registration = JSON.parse(call('run', 'register', '--target', target));
+  assert.ok(Math.abs(registration.rotation_deg - 90) < 1e-9);
+  assert.ok(Math.abs(registration.translation_mm[0] - 5) < 1e-9);
+  assert.ok(Math.abs(registration.translation_mm[1] + 3) < 1e-9);
+  assert.equal(registration.inliers, 3);
+  assert.ok(registration.rms_mm < 1e-9);
   backendReports[target] = { status: report.status, schema_version: report.schema_version,
     difference: { ref: difference.ref, kind: difference.kind, distance_mm: difference.distance_mm },
-    panel };
+    panel, registration };
 }
 const evidence = { module: mod, version, source: local ? 'unpacked' : 'mooncakes',
   toolchain: call('version', '--all').split(/\r?\n/).find(line => line.startsWith('moonc '))?.split(' (')[0],
   backends: backendReports };
 writeFileSync(join(parent, local ? 'unpacked.json' : 'mooncakes.json'), JSON.stringify(evidence, null, 2) + '\n');
-console.log(`${mod}@${version} (${evidence.source}): JS and Wasm-GC found the D1 offset and the panel review item`);
+console.log(`${mod}@${version} (${evidence.source}): JS and Wasm-GC verified the D1 offset, panel evidence, and registration`);

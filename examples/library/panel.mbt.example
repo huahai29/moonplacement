@@ -24,7 +24,7 @@ fn main {
   ) catch {
     _ => abort("cannot read policy")
   }
-  let panel = @mp.parse_gerber(
+  let top = @mp.parse_gerber_cell(
     #| %FSLAX46Y46*%
     #| %MOMM*%
     #| %ADD10C,0.4*%
@@ -35,14 +35,15 @@ fn main {
     #| %TD*%X4000000Y4000000D03*
     #| %SR*%M02*
     ,
+    row=2,
+    column=2,
     source="top.gbr",
   ) catch {
-    _ => abort("cannot read Gerber")
+    _ => abort("cannot read selected Gerber cell")
   }
-  let top = @mp.select_panel_cell(panel, row=2, column=2, source="top.gbr") catch {
-    _ => abort("cannot select Gerber cell")
+  let result = @mp.audit_checked(baseline, delivery, policy, top_gerber=Some(top)) catch {
+    _ => abort("cannot audit selected Gerber cell")
   }
-  let result = @mp.audit(baseline, delivery, policy, top_gerber=Some(top))
   if result.verdict is @mp.Indeterminate {
     print_review_queue(result.report)
   } else {
