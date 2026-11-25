@@ -1,0 +1,11 @@
+# Antmicro USB-C Power Delivery Adapter 验收文件
+
+设计版权归 Antmicro。使用上游固定提交 `4d3e9e289a294f7953bf48dde6c96af8327a0611`，许可证为 Apache-2.0。本目录保存生成的验收输入，设计源文件可从固定提交取得。[设计源文件](https://github.com/antmicro/usb-c-power-adapter/tree/4d3e9e289a294f7953bf48dde6c96af8327a0611) · [许可证](LICENSE-Apache-2.0.txt)
+
+| 原始输入 | 来源 |
+| --- | --- |
+| `kicad-placement.csv` | KiCad 10.0.8 导出双面 SMD 位置，CSV、mm，启用 `--smd-only` 和 `--exclude-dnp` |
+| `usb-c-power-adapter-F_Cu.gbr`、`usb-c-power-adapter-B_Cu.gbr` | KiCad 10.0.8 同一原点的原始 Gerber X2 |
+| `easyeda-pro-placement.csv` | 嘉立创 EDA 专业版 Web 4.1.105 导入同一份 KiCad 工程，再用「导出 → 坐标文件（CPL）」导出。CSV、逗号分隔、mm、数值无单位，底层坐标和角度镜像均关闭 |
+
+[SHA-256](SHA256SUMS)固定上述四份文件的原始字节。嘉立创文件保留 UTF-8 BOM 和导出换行。对齐字段后的 CSV 及偏移样本由验收脚本产生。[KiCad 导出记录](https://github.com/huahai29/moonplacement/actions/runs/45578388968) · [复现实测](../../../docs/cross-eda.md)

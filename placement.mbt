@@ -114,8 +114,8 @@ fn read_number(
 ///|
 fn read_side(raw : String, where_ : String) -> Side raise InputError {
   match raw.trim().to_owned().to_lower() {
-    "top" | "front" | "f.cu" => Top
-    "bottom" | "back" | "b.cu" => Bottom
+    "t" | "top" | "front" | "f.cu" => Top
+    "b" | "bottom" | "back" | "b.cu" => Bottom
     _ => raise InvalidInput(where_, "未知板面：\{raw}")
   }
 }

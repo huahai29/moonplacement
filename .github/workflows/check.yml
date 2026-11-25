@@ -60,6 +60,7 @@ jobs:
           node tests/demo-report.mjs
           node tests/report-contract.mjs
           python tests/pad-centroid-oracle.py
+          python tests/cross-eda-audit.py
       - name: 验证 Release 构建与配准数值
         run: |
           moon build --target js --release
@@ -129,6 +130,7 @@ jobs:
           name: kicad-evidence
           path: |
             _build/kicad-evidence
+            _build/cross-eda/validation
             _build/gerber-comparison
             _build/release-consumer/unpacked.json
             _build/real-panel

@@ -2,3 +2,5 @@
 
 # Keep the pinned upstream hardware fixture byte-for-byte.
 /examples/hardware/ht42b534/HT42B534USB2UART.kicad_pcb -text
+/examples/hardware/antmicro-usb-c-power-adapter/*.csv -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+/examples/hardware/antmicro-usb-c-power-adapter/*.gbr -text

@@ -62,6 +62,7 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 [0.2.0 版本与验收](docs/release-0.2.0.md)汇总库安装、实导出、拼板复现和性能数据。在 MoonBit 项目中使用时，运行 `moon add huahai29/moonplacement@0.2.0`，参考[公共 API](docs/api.md)。
 
 - [KiCad 双面实导出](examples/README.md#铜层实导出验证)可复现两张表都标错 C7 时，铜层如何查出偏移。
+- [KiCad 与嘉立创 EDA 双面实板对照](docs/cross-eda.md)使用两款软件各自的原始坐标表，比较封装中心与原点口径，并用原始底铜复核 C17 偏移。
 - [拼板单元核对](examples/README.md#核对拼板单元)用 `--panel-cell 2,2` 定位到指定单元的 D1。[验收结果摘要](docs/acceptance-results.md)集中记录这些案例的测量值。
 - [开源实板拼板验收](docs/real-panel.md)：用 KiCad 原生导出核对 2×2 实板拼板。0.2.0 也可直接核对基于同一双面铜层构造的 [10×10 SR 拼板](docs/panel-benchmark.md#直接解析指定单元)。
 - [块光圈与 PyGerber 对照](docs/gerber-acceptance.md#块光圈与独立对照)：核验展开前后的拼板几何，并对比 KiCad 实际导出铜层的采样点。
