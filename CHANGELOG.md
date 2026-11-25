@@ -2,6 +2,9 @@
 
 ## 未发布
 
+- CI 校验公开库接口快照并将测试告警视为失败。Windows 和 Linux 都构建 Release 版，并执行刚体、相似、仿射配准与最小最大残差的独立数值对照。
+- 库调用方可用 `Point::new` 构造毫米坐标并直接选择 `Rigid`、`Similarity` 或 `Affine` 模型调用 `register`。
+
 - CLI 和浏览器可保存核验凭据，记录每份输入的原始字节数、SHA-256 和本次核对报告。[核验凭据](docs/receipt.md)
 
 - Gerber 明确声明的用途或板面与所选输入不符时，CLI 和网页会拒收。库新增 `audit_checked`，可把同一冲突作为 `InputError` 处理。

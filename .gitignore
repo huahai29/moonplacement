@@ -1,6 +1,7 @@
 /_build/
 /target/
 *.generated.mbti
+!/pkg.generated.mbti
 /web/node_modules/
 /web/test-results/
 /web/playwright-report/

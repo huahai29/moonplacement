@@ -1,0 +1,224 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "huahai29/moonplacement"
+
+// Values
+pub const INPUT_ERROR_EXIT_CODE : Int32 = 64
+
+pub const INPUT_FILE_MAX_BYTES : Int32 = 8_388_608
+
+pub const POLICY_FILE_MAX_BYTES : Int32 = 65_536
+
+pub const REPORT_SCHEMA_VERSION : Int32 = 3
+
+pub fn audit(PlacementTable, PlacementTable, Policy, top_gerber? : GerberDocument?, bottom_gerber? : GerberDocument?) -> AuditResult
+
+pub fn audit_checked(PlacementTable, PlacementTable, Policy, top_gerber? : GerberDocument?, bottom_gerber? : GerberDocument?) -> AuditResult raise InputError
+
+pub fn audit_receipt(AuditResult, Array[ReceiptInput], host~ : String, build_sha256~ : String) -> Json
+
+pub fn check_pads(GerberDocument, Array[String], Array[Point], Double) -> Array[Json]
+
+pub fn copper_at(GerberDocument, Point, Double) -> Bool
+
+pub fn copper_centroid(Array[CopperPad]) -> Point
+
+pub fn gerber_pads(GerberDocument) -> Array[CopperPad]
+
+pub fn input_error_report(String, String) -> Json
+
+pub fn pad_groups(Array[CopperPad]) -> Map[String, Array[CopperPad]]
+
+pub fn parse_gerber(String, source~ : String) -> GerberDocument raise GerberError
+
+pub fn parse_gerber_cell(String, row~ : Int32, column~ : Int32, source~ : String, reference? : GerberDocument) -> GerberDocument raise GerberError
+
+pub fn polygon_area(Array[Point]) -> Double
+
+pub fn polygon_centroid(Array[Point]) -> Point
+
+pub fn polygon_contains(Array[Point], Point) -> Bool
+
+pub fn read_placements(String, source~ : String) -> PlacementTable raise InputError
+
+pub fn read_policy(String) -> Policy raise InputError
+
+pub fn register(Array[Point], Array[Point], TransformModel, Double) -> Registration?
+
+pub fn render_html(Json, PlacementTable) -> String
+
+pub fn report_contract() -> Json
+
+pub fn select_panel_cell(GerberDocument, row~ : Int32, column~ : Int32, source~ : String, reference? : GerberDocument) -> GerberDocument raise GerberError
+
+// Errors
+pub(all) suberror GerberError {
+  InvalidGerber(String, String)
+}
+
+pub(all) suberror InputError {
+  InvalidInput(String, String)
+}
+
+// Types and methods
+pub struct AuditResult {
+  verdict : Verdict
+  report : Json
+}
+
+pub struct CopperPad {
+  refdes : String?
+  shape : Shape
+  center : Point
+  area : Double
+}
+
+pub struct GerberArc {
+  center : Point
+  start_vector : Point
+  end_vector : Point
+  clockwise : Bool
+  sweep : Double
+  radius : Double
+  deviation : Double
+  stroke_radius : Double
+}
+
+pub struct GerberBounds {
+  lower : Point
+  upper : Point
+}
+
+pub struct GerberContour {
+  points : Array[Point]
+  error : Double
+  bounds : GerberBounds
+}
+
+pub struct GerberDocument {
+  source : String
+  file_function : String?
+  features : Array[GerberFeature]
+  warnings : Array[String]
+  repeated_refs : Map[String, Bool]
+  panel_grids : Array[GerberGrid]
+  panel_cell : PanelCell?
+}
+
+pub struct GerberFeature {
+  kind : GerberKind
+  dark : Bool
+  refdes : String?
+  pin : String?
+  statement_number : Int32
+  block_instance : Int32?
+}
+
+pub struct GerberGrid {
+  columns : Int32
+  rows : Int32
+  dx : Double
+  dy : Double
+  footprint : GerberBounds
+}
+
+pub enum GerberKind {
+  Flash(Shape, Point)
+  Draw(Shape, Point, Point)
+  Arc(GerberArc)
+  Region(GerberRegion)
+}
+
+pub struct GerberRegion {
+  contours : Array[GerberContour]
+  bounds : GerberBounds
+}
+
+pub struct PanelCell {
+  row : Int32
+  column : Int32
+  grid : GerberGrid
+  offset_mm : Point
+}
+
+pub struct PlacementTable {
+  // private fields
+}
+
+pub struct Point {
+  x : Double
+  y : Double
+}
+pub fn Point::new(Double, Double) -> Self
+
+pub struct Policy {
+  // private fields
+}
+
+pub(all) struct ReceiptInput {
+  role : String
+  byte_count : Int32
+  sha256 : String
+}
+
+pub struct Registration {
+  model : TransformModel
+  transform : Transform2D
+  rotation_deg : Double
+  scale : Double
+  rms_mm : Double
+  max_mm : Double
+  inlier_mask : Array[Bool]
+  residuals_mm : Array[Double]
+}
+pub fn Registration::inlier_count(Self) -> Int32
+
+pub enum Shape {
+  Circle(Double)
+  Rectangle(Double, Double)
+  Obround(Double, Double)
+  Polygon(Double, Int32)
+  Transformed(Shape, Transform2D)
+  RoundedOutline(Array[Point], Double)
+  RoundHole(Shape, Point, Point, Double)
+  Outline(Array[Point])
+  Thermal(Double, Double, Double)
+  Punched(Shape, Point, Array[(Point, Double)])
+}
+pub fn Shape::area(Self) -> Double
+pub fn Shape::contains(Self, Point, Point) -> Bool
+pub fn Shape::expanded(Self, Double) -> Self
+
+pub struct Transform2D {
+  a : Double
+  b : Double
+  c : Double
+  d : Double
+  e : Double
+  f : Double
+}
+pub fn Transform2D::apply(Self, Point) -> Point
+pub fn Transform2D::determinant(Self) -> Double
+pub fn Transform2D::identity() -> Self
+pub fn Transform2D::quarter_turns(Int32, Point) -> Self
+pub fn Transform2D::rotation(Double, Point, scale? : Double) -> Self
+pub fn Transform2D::rotation_deg(Self) -> Double
+pub fn Transform2D::scale(Self) -> Double
+pub fn Transform2D::translation(Self) -> Point
+pub fn Transform2D::with_translation(Self, Point) -> Self
+
+pub(all) enum TransformModel {
+  Rigid
+  Similarity
+  Affine
+}
+
+pub(all) enum Verdict {
+  Pass
+  Different
+  Indeterminate
+}
+pub fn Verdict::exit_code(Self) -> Int32
+
+// Type aliases
+
+// Traits

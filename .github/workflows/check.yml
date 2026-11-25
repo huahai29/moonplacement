@@ -40,15 +40,19 @@ jobs:
           moon version --all | grep -F "moonc v$(tr -d '\r\n' < .moonbit-version)"
           moon fmt --check
           moon check --target all --deny-warn
+      - name: 检查公开库接口
+        run: |
+          moon info -p huahai29/moonplacement
+          git diff --exit-code -- pkg.generated.mbti
       - name: JS 和 Wasm-GC 测试
         run: |
-          moon test --target js
-          moon test --target wasm-gc
+          moon test --target js --deny-warn
+          moon test --target wasm-gc --deny-warn
       - name: Linux Wasm 与 Native 测试
         if: runner.os == 'Linux'
         run: |
-          moon test --target wasm
-          moon test --target native
+          moon test --target wasm --deny-warn
+          moon test --target native --deny-warn
       - name: 构建与命令行测试
         run: |
           moon build --target js
@@ -56,6 +60,11 @@ jobs:
           node tests/demo-report.mjs
           node tests/report-contract.mjs
           python tests/pad-centroid-oracle.py
+      - name: 验证 Release 构建与配准数值
+        run: |
+          moon build --target js --release
+          python -m pip install numpy==2.4.4
+          python tests/registration-oracle.py
       - name: 记录 MoonBit 库覆盖率
         if: runner.os == 'Linux'
         run: |
@@ -66,7 +75,6 @@ jobs:
       - name: 构建并验证浏览器工作台
         if: runner.os == 'Linux'
         run: |
-          moon build --target js --release
           node web/build.mjs
           npm --prefix web ci
           npm --prefix web exec -- playwright install --with-deps chromium
@@ -77,6 +85,11 @@ jobs:
         with:
           name: platform-${{ runner.os }}
           path: _build/platform-cases.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: registration-oracle-${{ runner.os }}
+          path: _build/registration-oracle.json
           if-no-files-found: error
       - name: 验证归档可被独立项目使用
         if: runner.os == 'Linux'

@@ -1,6 +1,6 @@
 ///|
 /// Transform family estimated by the registration engine.
-pub enum TransformModel {
+pub(all) enum TransformModel {
   Rigid
   Similarity
   Affine

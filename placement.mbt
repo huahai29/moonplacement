@@ -13,6 +13,12 @@ pub struct Point {
 }
 
 ///|
+/// Construct a point from millimetre coordinates.
+pub fn Point::new(x : Double, y : Double) -> Point {
+  { x, y, }
+}
+
+///|
 priv struct Placement {
   refdes : String
   xy : Point
