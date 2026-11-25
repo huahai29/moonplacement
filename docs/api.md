@@ -22,6 +22,7 @@ pkgtype(kind: "executable")
 | 比较坐标表并核验所传板面 | `audit(baseline, delivery, policy, top_gerber=Some(top), bottom_gerber=Some(bottom))`。可省略任一未提供的铜层 |
 | 显式处理板面或铜层用途冲突 | GitHub 主分支的 `audit_checked` 调用方式与 `audit` 相同，遇到明确冲突时抛出带源文件名的 `InputError`。同一主分支的 `audit` 会返回 `Indeterminate` 和 `invalid_gerber_layer` |
 | 保存证据 | `AuditResult.report` 是 JSON v3；`render_html(result.report, baseline)` 返回可离线打开的 HTML 字符串 |
+| 保存输入指纹 | GitHub 主分支的 `audit_receipt(result, inputs, host=..., build_sha256=...)` 把宿主计算的哈希与原报告写入[核验凭据](receipt.md) |
 | 自己做点集配准 | `register` 支持刚体、相似和仿射模型，返回变换与基准点残差 |
 
 选择单元时，行列从 1 开始。双面核对先选顶层，再为底层传入同一单元的顶层文档作为 `reference`；两张坐标表都使用第一单元的坐标系。[拼板单元规则](audit.md#拼板单元)

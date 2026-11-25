@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { copyFileSync, linkSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -523,4 +524,78 @@ test('invalid arguments and files return a structured input error', t => {
   const largePolicy = join(directory, 'large.json');
   writeFileSync(largePolicy, Buffer.alloc(65_537));
   assert.match(run([baseline, delivery, largePolicy], 64).message, /65536/);
+});
+
+test('receipts fingerprint original bytes and bind all completed audit statuses', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'moonplacement-receipt-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const originalBytes = Buffer.from('\uFEFF' + readFileSync(baseline, 'utf8').replace(/\r?\n/g, '\r\n'));
+  const source = join(directory, '原始坐标.csv');
+  writeFileSync(source, originalBytes);
+  const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+  const manifest = readFileSync('moon.mod', 'utf8');
+  const version = manifest.match(/^version\s*=\s*"([^"]+)"/m)[1];
+  const buildSha256 = sha256(readFileSync(bin));
+  const bottom = join(directory, 'bottom.gbr');
+  const panel = join(gerberExamples, 'panel-cell-2x2.gbr');
+  writeFileSync(bottom, readFileSync(panel, 'utf8').replace('Copper,L1,Top', 'Copper,L2,Bot'));
+  for (const { status, exit, layers, selection } of [
+    { status: 'pass', exit: 0, layers: [], selection: [] },
+    { status: 'different', exit: 1, layers: [panel, bottom], selection: ['--panel-cell', '2,2'] },
+    { status: 'indeterminate', exit: 2, layers: [join(gerberExamples, 'panel-sr.gbr')], selection: [] },
+  ]) {
+    const path = join(directory, status + '.json');
+    const report = run([source, delivery, policy, ...layers, ...selection, '--receipt', path], exit);
+    assert.equal(report.status, status);
+    const receipt = JSON.parse(readFileSync(path, 'utf8'));
+    assert.equal(receipt.schema, 'moonplacement.receipt.v1');
+    assert.deepEqual(receipt.producer, { name: 'MoonPlacement', package_version: version,
+      host: 'cli', build_sha256: buildSha256 });
+    assert.deepEqual(receipt.report, report);
+    assert.equal(JSON.stringify(receipt).includes('原始坐标.csv'), false);
+    const roles = ['policy', 'baseline', 'delivery', 'top_gerber', 'bottom_gerber'];
+    assert.deepEqual(receipt.inputs, [policy, source, delivery, ...layers].map((file, index) => {
+      const bytes = readFileSync(file);
+      return { role: roles[index], bytes: bytes.length, sha256: sha256(bytes) };
+    }));
+    if (status === 'different') {
+      assert.deepEqual(receipt.report.panel_cells.map(({ side, row, column }) => [side, row, column]),
+        [['top', 2, 2], ['bottom', 2, 2]]);
+    }
+  }
+});
+
+test('receipt output refuses existing paths and fails closed for an unstable input read', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'moonplacement-receipt-errors-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const target = join(directory, 'receipt.json');
+  const args = [baseline, delivery, policy, '--receipt', target];
+  for (const flags of [['--receipt'], ['--receipt', '--panel-cell'], ['--receipt', target, '--receipt', target]]) {
+    assert.equal(run([baseline, delivery, policy, ...flags], 64).field, 'receipt');
+  }
+  assert.match(run([...args, '--html', target], 64).message, /不同的输出路径/);
+  assert.equal(run([baseline, 'examples/missing.csv', policy, '--receipt', target], 64).status, 'input_error');
+  assert.deepEqual(readdirSync(directory), []);
+
+  const preload = join(directory, 'unstable.cjs');
+  writeFileSync(preload, `const fs = require('node:fs');
+    const original = fs.fstatSync;
+    let reads = 0;
+    fs.fstatSync = (fd, options) => {
+      const stat = original(fd, options);
+      if (options?.bigint && ++reads === 2) stat.mtimeNs += 1n;
+      return stat;
+    };`);
+  const unstable = run(args, 64, ['--require', preload]);
+  assert.equal(unstable.field, policy);
+  assert.match(unstable.message, /文件在读取期间发生变化/);
+  assert.deepEqual(readdirSync(directory), ['unstable.cjs']);
+
+  assert.equal(run(args, 0).status, 'pass');
+  const saved = readFileSync(target, 'utf8');
+  const refused = run(args, 64);
+  assert.equal(refused.field, target);
+  assert.match(refused.message, /目标已存在/);
+  assert.equal(readFileSync(target, 'utf8'), saved);
+  assert.deepEqual(readdirSync(directory), ['receipt.json', 'unstable.cjs']);
 });

@@ -75,11 +75,13 @@ MoonBit 库可直接调用 `parse_gerber_cell(text, row=10, column=10, source="t
 
 从 v2 迁移时，改用 `pad_evidence` 判断是否有焊盘归属，不再依据 `no_copper`。调用方式不变，原本证据不足仍通过的输入现在返回退出码 2。从 v1 迁移时，在 `anchor_issues` 读取原先位于 `differences` 的 `anchor_*`。
 
-## 导出 HTML
+## 导出 HTML 和凭据
 
 `--html` 接收一个新的报告路径，父目录须已存在并支持硬链接。CLI 先在同一目录暂存完整内容，再创建目标文件。目标已存在或其他进程抢先创建时，返回退出码 64，原文件保留。写入或发布失败也通过 `input_error` 报告，`field` 指向指定的报告路径。
 
 正常退出会清理暂存目录。进程被强制终止或清理失败时，目录中可能留下 `.moonplacement-*` 暂存项。
+
+需要事后核对报告所用的坐标表、配置与铜层时，加上 [`--receipt`](receipt.md) 保存原始字节的 SHA-256。
 
 ## 源码入口
 

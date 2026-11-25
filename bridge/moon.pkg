@@ -1,5 +1,6 @@
 import {
   "huahai29/moonplacement" @mp,
+  "moonbitlang/core/json",
 }
 
 pkgtype(kind: "executable")

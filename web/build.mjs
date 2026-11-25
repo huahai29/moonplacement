@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,7 +10,10 @@ mkdirSync(join(target, 'samples'), { recursive: true });
 for (const file of ['index.html', 'workbench.mjs', 'worker.mjs', 'style.css']) {
   copyFileSync(join('web', file), join(target, file));
 }
-copyFileSync(join(build, 'bridge', 'bridge.js'), join(target, 'engine.mjs'));
+const engine = readFileSync(join(build, 'bridge', 'bridge.js'));
+const engineSha256 = createHash('sha256').update(engine).digest('hex');
+writeFileSync(join(target, 'engine.mjs'),
+  Buffer.concat([engine, Buffer.from(`\nexport const receiptBuildSha256 = "${engineSha256}";\n`)]));
 for (const file of ['baseline.csv', 'delivery-ok.csv', 'policy.json', 'gerber/panel-cell-2x2.gbr']) {
   copyFileSync(join('examples', file), join(target, 'samples', file.split('/').at(-1)));
 }

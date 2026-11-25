@@ -32,16 +32,25 @@ cell.addEventListener('change', () => {
   row.disabled = column.disabled = !cell.checked;
 });
 
+async function decodeFile(name, buffer) {
+  let text;
+  try { text = textDecoder.decode(buffer); }
+  catch { throw new Error(`${name} 不是有效的 UTF-8 文件。`); }
+  let sha256;
+  try {
+    const hash = await globalThis.crypto.subtle.digest('SHA-256', buffer);
+    sha256 = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
+  } catch {
+    // Older/insecure contexts can still run a report without a receipt.
+  }
+  return { name, text, bytes: buffer.byteLength, sha256 };
+}
+
 async function localFile(id, maxBytes) {
   const file = byId(id).files[0];
   if (!file) return empty;
   if (file.size > maxBytes) throw new Error(`${file.name} 超过 ${maxBytes.toLocaleString('zh-CN')} 字节。`);
-  const bytes = await file.arrayBuffer();
-  try {
-    return { name: file.name, text: textDecoder.decode(bytes) };
-  } catch {
-    throw new Error(`${file.name} 不是有效的 UTF-8 文件。`);
-  }
+  return decodeFile(file.name, await file.arrayBuffer());
 }
 
 async function getAsset(path) {
@@ -51,7 +60,7 @@ async function getAsset(path) {
 }
 
 async function sample(name) {
-  return { name, text: await (await getAsset('./samples/' + name)).text() };
+  return decodeFile(name, await (await getAsset('./samples/' + name)).arrayBuffer());
 }
 
 async function files(useDemo) {
@@ -107,7 +116,7 @@ function setState(kind, message, notes = '') {
 }
 
 function resetResult() {
-  for (const id of ['download-json', 'download-html']) {
+  for (const id of ['download-json', 'download-html', 'download-receipt']) {
     const link = byId(id);
     if (link.hasAttribute('href')) URL.revokeObjectURL(link.href);
     link.removeAttribute('href');
@@ -116,7 +125,7 @@ function resetResult() {
   frame.removeAttribute('srcdoc');
 }
 
-function show({ report, html }) {
+function show({ report, html, receipt }) {
   if (report.status === 'input_error') {
     setState(report.status, resultLabels.input_error, `${report.field} · ${report.message}`);
     return;
@@ -133,6 +142,12 @@ function show({ report, html }) {
   byId('download-json').href = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2) + '\n'],
     { type: 'application/json' }));
   byId('download-html').href = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+  const receiptLink = byId('download-receipt');
+  receiptLink.hidden = !receipt;
+  if (receipt) {
+    receiptLink.href = URL.createObjectURL(new Blob([JSON.stringify(receipt, null, 2) + '\n'],
+      { type: 'application/json' }));
+  }
 }
 
 async function check(useDemo) {

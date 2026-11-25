@@ -1,10 +1,17 @@
 import { expect, test } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const example = path => resolve('../examples', path);
 
-test('D1 sample renders the panel evidence and downloads both report formats', async ({ page }) => {
+async function download(page, label, filename) {
+  const [file] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: label }).click()]);
+  expect(file.suggestedFilename()).toBe(filename);
+  return readFile(await file.path(), 'utf8');
+}
+
+test('D1 sample downloads both report formats and a receipt for the same audit', async ({ page }) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
@@ -14,23 +21,29 @@ test('D1 sample renders the panel evidence and downloads both report formats', a
   const preview = page.frameLocator('#report-frame');
   await expect(preview.getByText('顶面拼板单元：第 2 行，第 2 列。')).toBeVisible();
   await expect(preview.getByRole('cell', { name: 'D1', exact: true })).toBeVisible();
-  for (const [label, filename] of [
-    ['下载 JSON', 'moonplacement-report.json'],
-    ['下载 HTML', 'moonplacement-report.html'],
-  ]) {
-    const [file] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: label }).click()]);
-    expect(file.suggestedFilename()).toBe(filename);
-    const contents = await readFile(await file.path(), 'utf8');
-    if (filename.endsWith('.json')) {
-      const report = JSON.parse(contents);
-      expect(report.schema_version).toBe(3);
-      expect(report.differences).toEqual([]);
-      expect(report.pad_differences).toEqual([expect.objectContaining({ ref: 'D1', kind: 'pad_offset' })]);
-    } else {
-      expect(contents).toContain('<meta charset="utf-8">');
-      expect(contents).toContain('第 2 行，第 2 列');
-    }
-  }
+  const report = JSON.parse(await download(page, '下载 JSON', 'moonplacement-report.json'));
+  expect(report.schema_version).toBe(3);
+  expect(report.differences).toEqual([]);
+  expect(report.pad_differences).toEqual([expect.objectContaining({ ref: 'D1', kind: 'pad_offset' })]);
+  const html = await download(page, '下载 HTML', 'moonplacement-report.html');
+  expect(html).toContain('<meta charset="utf-8">');
+  expect(html).toContain('第 2 行，第 2 列');
+
+  const receipt = JSON.parse(await download(page, '下载核验凭据', 'moonplacement-receipt.json'));
+  const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+  const engine = await readFile('../_build/js/release/build/bridge/bridge.js');
+  expect(receipt.schema).toBe('moonplacement.receipt.v1');
+  expect(receipt.producer).toMatchObject({ host: 'web', build_sha256: sha256(engine) });
+  expect(receipt.report).toEqual(report);
+  expect(receipt.inputs).toEqual(await Promise.all([
+    ['policy', 'policy.json'],
+    ['baseline', 'baseline.csv'],
+    ['delivery', 'delivery-ok.csv'],
+    ['top_gerber', 'gerber/panel-cell-2x2.gbr'],
+  ].map(async ([role, path]) => {
+    const bytes = await readFile(example(path));
+    return { role, bytes: bytes.length, sha256: sha256(bytes) };
+  })));
   expect(errors).toEqual([]);
 });
 
@@ -54,6 +67,17 @@ test('local files stay in the browser and invalid UTF-8 is reported', async ({ p
   await expect(page.getByRole('status')).toHaveText('无法完成核对');
   await expect(page.locator('#result-detail')).toHaveText('坏文件.csv 不是有效的 UTF-8 文件。');
   await expect(page.getByRole('link', { name: '下载 JSON' })).toBeHidden();
+  await expect(page.getByRole('link', { name: '下载核验凭据' })).toBeHidden();
+});
+
+test('an unavailable digest leaves the ordinary reports usable', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(window.crypto, 'subtle', { value: undefined }));
+  await page.goto('/');
+  await page.getByRole('button', { name: '运行 D1 示例' }).click();
+  await expect(page.getByRole('status')).toHaveText('发现差异');
+  await expect(page.getByRole('link', { name: '下载 JSON' })).toBeVisible();
+  await expect(page.getByRole('link', { name: '下载 HTML' })).toBeVisible();
+  await expect(page.getByRole('link', { name: '下载核验凭据' })).toBeHidden();
 });
 
 test('mobile panel selection shows the Gerber error and clears a stale result', async ({ page }) => {

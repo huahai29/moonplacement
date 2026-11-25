@@ -15,7 +15,7 @@ PCB 送厂前，用 MoonPlacement 对照设计坐标表和送厂坐标表，找�
 
 [离线 HTML 报告](docs/demo/panel-d1.html)可从 GitHub 下载原文件后用浏览器打开。[复现命令](#复现报告)
 
-[打开在线工作台](https://huahai29.github.io/moonplacement/)可直接运行 D1 示例或选择自己的文件。核对在浏览器中执行，可下载 JSON 和离线 HTML。
+[打开在线工作台](https://huahai29.github.io/moonplacement/)可直接运行 D1 示例或选择自己的文件。核对在浏览器中执行，可下载 JSON、离线 HTML 和[核验凭据](docs/receipt.md)。
 
 ![MoonPlacement 离线报告显示第 2 行第 2 列的 D1 铜层偏差](docs/demo/panel-d1.png)
 
@@ -37,10 +37,10 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 给同一对坐标表加上示例铜层，选择第 2 行第 2 列：
 
 ```sh
-node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/delivery-ok.csv examples/policy.json examples/gerber/panel-cell-2x2.gbr --panel-cell 2,2 --html _build/report.html
+node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/delivery-ok.csv examples/policy.json examples/gerber/panel-cell-2x2.gbr --panel-cell 2,2 --html _build/report.html --receipt _build/receipt.json
 ```
 
-退出码 1 表示发现差异，报告写到 `_build/report.html`。输出需要使用新文件名，重复运行可换一个名字。目标目录须已存在，并支持硬链接。
+退出码 1 表示发现差异。打开 `_build/report.html` 查看 D1，或用 `_build/receipt.json` 核对报告对应的原始文件。两个选项均可省略。输出需要使用新文件名，目标目录须已存在，并支持硬链接。
 
 ## 核对自己的板子
 

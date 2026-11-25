@@ -22,6 +22,26 @@ fn read_layer(
 }
 
 ///|
+fn decode_fingerprints(text : String) -> Array[@mp.ReceiptInput] {
+  let decoded = @json.parse(text) catch { _ => Json(null) }
+  guard decoded is Array(entries) else { return [] }
+  let inputs : Array[@mp.ReceiptInput] = []
+  for entry in entries {
+    guard entry
+      is {
+        "role": String(role),
+        "bytes": Number(size, ..),
+        "sha256": String(sha256),
+        ..
+      } else {
+      return []
+    }
+    inputs.push({ role, byte_count: size.to_int(), sha256, })
+  }
+  inputs
+}
+
+///|
 /// Browser adapter for the same public library routines used by the CLI.
 pub fn audit_files(
   baseline_csv : String,
@@ -35,6 +55,8 @@ pub fn audit_files(
   bottom_file : String,
   row : Int32,
   column : Int32,
+  fingerprint_json : String,
+  build_sha256 : String,
 ) -> String {
   let response : Json = try {
     if top_file.is_empty() && (!bottom_file.is_empty() || row != 0) {
@@ -58,10 +80,29 @@ pub fn audit_files(
       top_gerber=top,
       bottom_gerber=bottom,
     )
-    {
+    let output : Map[String, Json] = {
       "report": result.report,
       "html": Json(@mp.render_html(result.report, baseline)),
     }
+    if !fingerprint_json.is_empty() {
+      let inputs = decode_fingerprints(fingerprint_json)
+      let expected = if bottom is Some(_) {
+        5
+      } else if top is Some(_) {
+        4
+      } else {
+        3
+      }
+      if inputs.length() == expected {
+        output["receipt"] = @mp.audit_receipt(
+          result,
+          inputs,
+          host="web",
+          build_sha256~,
+        )
+      }
+    }
+    Json::object(output)
   } catch {
     @mp.InvalidInput(field, message) =>
       { "report": @mp.input_error_report(field, message) }

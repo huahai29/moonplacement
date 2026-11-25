@@ -11,13 +11,18 @@ extern "js" fn finish(code : Int32) -> Unit = "(code) => { process.exitCode = co
 type FileRead
 
 ///|
-extern "js" fn read_file(path : String, limit : Int32) -> FileRead =
-  #| (path, limit) => {
+extern "js" fn read_file(
+  path : String,
+  limit : Int32,
+  fingerprint : Bool,
+) -> FileRead =
+  #| (path, limit, fingerprint) => {
   #|   try {
   #|     const fs = process.getBuiltinModule('node:fs');
   #|     const fd = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
   #|     try {
-  #|       if (!fs.fstatSync(fd).isFile()) return { error: "需要普通文件" };
+  #|       const start = fs.fstatSync(fd, { bigint: true });
+  #|       if (!start.isFile()) return { error: "需要普通文件" };
   #|       const bytes = Buffer.alloc(limit + 1);
   #|       let length = 0;
   #|       while (length < bytes.length) {
@@ -26,7 +31,17 @@ extern "js" fn read_file(path : String, limit : Int32) -> FileRead =
   #|         length += count;
   #|       }
   #|       if (length > limit) return { error: "文件超过 " + limit + " 字节" };
-  #|       return { text: new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, length)) };
+  #|       const snapshot = bytes.subarray(0, length);
+  #|       let sha256 = '';
+  #|       if (fingerprint) {
+  #|         const after = fs.fstatSync(fd, { bigint: true });
+  #|         if (start.size !== BigInt(length) || start.size !== after.size ||
+  #|             start.mtimeNs !== after.mtimeNs || start.ctimeNs !== after.ctimeNs) {
+  #|           return { error: '文件在读取期间发生变化，请重试' };
+  #|         }
+  #|         sha256 = process.getBuiltinModule('node:crypto').createHash('sha256').update(snapshot).digest('hex');
+  #|       }
+  #|       return { text: new TextDecoder('utf-8', { fatal: true }).decode(snapshot), length, sha256 };
   #|     } finally {
   #|       fs.closeSync(fd);
   #|     }
@@ -42,7 +57,39 @@ extern "js" fn file_error(file : FileRead) -> String = "(file) => file.error ?? 
 extern "js" fn file_text(file : FileRead) -> String = "(file) => file.text ?? ''"
 
 ///|
-extern "js" fn publish_html(filename : String, text : String) -> String =
+extern "js" fn file_length(file : FileRead) -> Int32 = "(file) => file.length"
+
+///|
+extern "js" fn file_sha256(file : FileRead) -> String = "(file) => file.sha256"
+
+///|
+extern "js" fn cli_sha256() -> String =
+  #| () => {
+  #|   try {
+  #|     const fs = process.getBuiltinModule('node:fs');
+  #|     const bytes = fs.readFileSync(process.argv[1]);
+  #|     return process.getBuiltinModule('node:crypto').createHash('sha256').update(bytes).digest('hex');
+  #|   } catch {
+  #|     return '';
+  #|   }
+  #| }
+
+///|
+extern "js" fn same_output(left : String, right : String) -> Bool =
+  #| (left, right) => {
+  #|   const fs = process.getBuiltinModule('node:fs');
+  #|   const paths = process.getBuiltinModule('node:path');
+  #|   const key = name => {
+  #|     let path;
+  #|     try { path = paths.join(fs.realpathSync.native(paths.dirname(name)), paths.basename(name)); }
+  #|     catch { path = paths.resolve(name); }
+  #|     return process.platform === 'win32' ? path.toLowerCase() : path;
+  #|   };
+  #|   return key(left) === key(right);
+  #| }
+
+///|
+extern "js" fn publish_file(filename : String, text : String) -> String =
   #| (filename, text) => {
   #|   const fs = process.getBuiltinModule('node:fs');
   #|   const paths = process.getBuiltinModule('node:path');
@@ -58,7 +105,7 @@ extern "js" fn publish_html(filename : String, text : String) -> String =
   #|     const parent = fs.realpathSync.native(paths.dirname(filename));
   #|     const target = paths.join(parent, basename);
   #|     staging = fs.mkdtempSync(paths.join(parent, '.moonplacement-'));
-  #|     temporary = paths.join(staging, 'report.html');
+  #|     temporary = paths.join(staging, 'output');
   #|     fs.writeFileSync(temporary, text, { encoding: 'utf8', flag: 'wx', flush: true });
   #|     // Publish only after writing and closing the complete file. Linking
   #|     // creates the destination without replacing a racing directory entry.
@@ -86,24 +133,34 @@ extern "js" fn publish_html(filename : String, text : String) -> String =
 fn load_file(
   path : String,
   limit : Int32,
+  role : String,
+  fingerprints : Array[@placement.ReceiptInput]?,
 ) -> String raise @placement.InputError {
-  let file = read_file(path, limit)
+  let file = read_file(path, limit, fingerprints is Some(_))
   let error = file_error(file)
   if !error.is_empty() {
     raise @placement.InvalidInput(path, error)
+  }
+  if fingerprints is Some(inputs) {
+    inputs.push({
+      role,
+      byte_count: file_length(file),
+      sha256: file_sha256(file),
+    })
   }
   file_text(file)
 }
 
 ///|
 fn usage() -> String {
-  "用法：moon run cmd/main --target js -- <基准.csv> <送厂.csv> <配置.json> [顶层.gbr] [底层.gbr] [--panel-cell 行,列] [--html 报告.html]\n       moon run cmd/main --target js -- --report-schema"
+  "用法：moon run cmd/main --target js -- <基准.csv> <送厂.csv> <配置.json> [顶层.gbr] [底层.gbr] [--panel-cell 行,列] [--html 报告.html] [--receipt 凭据.json]\n       moon run cmd/main --target js -- --report-schema"
 }
 
 ///|
 priv struct CliArgs {
   positional : Array[String]
   html : String?
+  receipt : String?
   cell : (Int32, Int32)?
 }
 
@@ -133,20 +190,32 @@ fn cell_index(value : String) -> Int32 raise @placement.InputError {
 fn parse_args() -> CliArgs raise @placement.InputError {
   let positional : Array[String] = []
   let mut html : String? = None
+  let mut receipt : String? = None
   let mut cell = None
   let mut index = 0
   while index < arg_count() {
     let value = arg(index)
-    if value == "--html" {
-      if html is Some(_) ||
+    if value == "--html" || value == "--receipt" {
+      let is_html = value == "--html"
+      let previous = if is_html { html } else { receipt }
+      if previous is Some(_) ||
         index + 1 >= arg_count() ||
         arg(index + 1).is_empty() ||
         arg(index + 1).has_prefix("--") {
         raise @placement.InvalidInput(
-          "html", "--html 需要且只能提供一次新报告文件名",
+          if is_html {
+            "html"
+          } else {
+            "receipt"
+          },
+          "\{value} 需要且只能提供一次新输出文件名",
         )
       }
-      html = Some(arg(index + 1))
+      if is_html {
+        html = Some(arg(index + 1))
+      } else {
+        receipt = Some(arg(index + 1))
+      }
       index += 2
     } else if value == "--panel-cell" {
       if cell is Some(_) || index + 1 >= arg_count() {
@@ -167,16 +236,23 @@ fn parse_args() -> CliArgs raise @placement.InputError {
       index += 1
     }
   }
-  { positional, html, cell, }
+  { positional, html, receipt, cell, }
 }
 
 ///|
 fn load_layer(
   path : String,
   cell : (Int32, Int32)?,
+  role : String,
+  fingerprints : Array[@placement.ReceiptInput]?,
   reference~ : @placement.GerberDocument? = None,
 ) -> @placement.GerberDocument raise @placement.InputError {
-  let text = load_file(path, @placement.INPUT_FILE_MAX_BYTES)
+  let text = load_file(
+    path,
+    @placement.INPUT_FILE_MAX_BYTES,
+    role,
+    fingerprints,
+  )
   try {
     if cell is Some((row, column)) {
       @placement.parse_gerber_cell(text, row~, column~, source=path, reference?)
@@ -211,24 +287,55 @@ fn run() -> Int32 raise @placement.InputError {
       "panel_cell", "--panel-cell 需要提供 Gerber 铜层",
     )
   }
+  if args.html is Some(html) &&
+    args.receipt is Some(receipt) &&
+    same_output(html, receipt) {
+    raise @placement.InvalidInput(
+      receipt, "报告和凭据需要不同的输出路径",
+    )
+  }
+  let fingerprints = if args.receipt is Some(_) { Some([]) } else { None }
   let policy = @placement.read_policy(
-    load_file(positional[2], @placement.POLICY_FILE_MAX_BYTES),
+    load_file(
+      positional[2],
+      @placement.POLICY_FILE_MAX_BYTES,
+      "policy",
+      fingerprints,
+    ),
   )
   let baseline = @placement.read_placements(
-    load_file(positional[0], @placement.INPUT_FILE_MAX_BYTES),
+    load_file(
+      positional[0],
+      @placement.INPUT_FILE_MAX_BYTES,
+      "baseline",
+      fingerprints,
+    ),
     source=positional[0],
   )
   let delivery = @placement.read_placements(
-    load_file(positional[1], @placement.INPUT_FILE_MAX_BYTES),
+    load_file(
+      positional[1],
+      @placement.INPUT_FILE_MAX_BYTES,
+      "delivery",
+      fingerprints,
+    ),
     source=positional[1],
   )
   let top = if positional.length() >= 4 {
-    Some(load_layer(positional[3], args.cell))
+    Some(load_layer(positional[3], args.cell, "top_gerber", fingerprints))
   } else {
     None
   }
   let bottom = if positional.length() >= 5 {
-    Some(load_layer(positional[4], args.cell, reference=top))
+    Some(
+      load_layer(
+        positional[4],
+        args.cell,
+        "bottom_gerber",
+        fingerprints,
+        reference=top,
+      ),
+    )
   } else {
     None
   }
@@ -239,10 +346,26 @@ fn run() -> Int32 raise @placement.InputError {
     top_gerber=top,
     bottom_gerber=bottom,
   )
+  if args.receipt is Some(path) && fingerprints is Some(inputs) {
+    let build_sha256 = cli_sha256()
+    if build_sha256.is_empty() {
+      raise @placement.InvalidInput(path, "无法计算 CLI 构建的 SHA-256")
+    }
+    let receipt = @placement.audit_receipt(
+      result,
+      inputs,
+      host="cli",
+      build_sha256~,
+    )
+    let error = publish_file(path, receipt.stringify(indent=2) + "\n")
+    if !error.is_empty() {
+      raise @placement.InvalidInput(path, "无法写入核验凭据：\{error}")
+    }
+  }
   match args.html {
     Some(path) => {
       let html = @placement.render_html(result.report, baseline)
-      let error = publish_html(path, html)
+      let error = publish_file(path, html)
       if !error.is_empty() {
         raise @placement.InvalidInput(
           path,
