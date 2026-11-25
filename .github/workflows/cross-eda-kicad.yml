@@ -1,0 +1,55 @@
+name: KiCad 跨工具验收输入
+
+on:
+  push:
+    branches: [codex/cross-eda-kicad]
+    paths: [.github/workflows/cross-eda-kicad.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      BOARD_REV: 4d3e9e289a294f7953bf48dde6c96af8327a0611
+      KICAD_IMAGE: ghcr.io/kicad/kicad:10.0.8@sha256:3f4a01786dfbe803a65f345c3342b765db9add913f5e9448f8356793714ddc34
+    steps:
+      - name: 生成原始双面贴装和铜层文件
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/copper
+          git init -q evidence/design
+          git -C evidence/design fetch -q --depth=1 https://github.com/antmicro/usb-c-power-adapter.git "$BOARD_REV"
+          git -C evidence/design checkout -q --detach FETCH_HEAD
+          git -C evidence/design rev-parse HEAD > evidence/upstream-commit.txt
+          cp evidence/design/LICENSE evidence/LICENSE-Apache-2.0.txt
+          board=/data/design/usb-c-power-adapter.kicad_pcb
+          run_kicad() {
+            docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+              -v "$PWD/evidence:/data" --entrypoint kicad-cli "$KICAD_IMAGE" "$@"
+          }
+          run_kicad version | tee evidence/kicad-version.txt
+          run_kicad pcb export pos --side both --format csv --units mm --smd-only --exclude-dnp \
+            -o /data/kicad-placement.csv "$board"
+          run_kicad pcb export gerbers --layers F.Cu,B.Cu --no-protel-ext -o /data/copper/ "$board"
+          git -C evidence/design archive --format=zip --output="$PWD/evidence/antmicro-kicad-project.zip" \
+            HEAD LICENSE README.md '*.kicad_sch' '*.kicad_pro' '*.kicad_pcb'
+          (
+            cd evidence
+            sha256sum kicad-placement.csv copper/*.gbr antmicro-kicad-project.zip > SHA256SUMS
+          )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kicad-cross-eda-inputs
+          path: |
+            evidence/kicad-placement.csv
+            evidence/copper/*.gbr
+            evidence/kicad-version.txt
+            evidence/upstream-commit.txt
+            evidence/LICENSE-Apache-2.0.txt
+            evidence/SHA256SUMS
+            evidence/antmicro-kicad-project.zip
+          if-no-files-found: error
