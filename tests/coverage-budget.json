@@ -1,6 +1,10 @@
 {
   "Total": 80,
   "audit.mbt": 90,
+  "report.mbt": 75,
+  "alignment.mbt": 85,
+  "padcheck.mbt": 83,
+  "pad_origin.mbt": 97,
   "gerber_panel.mbt": 88,
   "clearance_index.mbt": 100
 }

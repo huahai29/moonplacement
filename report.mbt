@@ -44,6 +44,7 @@ fn escape_html(text : String) -> String {
       '>' => builder.write_string("&gt;")
       '&' => builder.write_string("&amp;")
       '"' => builder.write_string("&quot;")
+      '\'' => builder.write_string("&#39;")
       _ => builder.write_char(ch)
     }
   }
@@ -196,7 +197,7 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
   let pad_state = match json_string(report, "pad_status") {
     "complete" => "已取得全部位号证据"
     "incomplete" if failed_layer => "部分铜层未完成核验"
-    "incomplete" => "部分器件缺少位号证据"
+    "incomplete" => "部分器件的铜层证据需复查"
     "skipped" if reason == "invalid_gerber_layer" =>
       "Gerber 板面或用途不符，未核验"
     "skipped" if reason == "incomplete_gerber_layers" =>
