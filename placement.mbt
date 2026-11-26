@@ -31,6 +31,8 @@ priv struct Placement {
 ///|
 pub struct PlacementTable {
   priv rows : Map[String, Placement]
+  priv imported_with : TableImport
+  priv coordinate_headers : (String, String)
 }
 
 ///|
@@ -45,11 +47,15 @@ priv enum Column {
 } derive(Eq, Hash)
 
 ///|
-fn column(name : String) -> Column? {
+fn column(name : String, coordinates : CoordinateColumns) -> Column? {
   match name.trim().to_owned().to_lower() {
     "ref" | "designator" => Some(Ref)
-    "posx" | "mid x" => Some(X)
-    "posy" | "mid y" => Some(Y)
+    "posx" if coordinates is DefaultCoordinates => Some(X)
+    "posy" if coordinates is DefaultCoordinates => Some(Y)
+    "mid x" if !(coordinates is ReferenceOrigin) => Some(X)
+    "mid y" if !(coordinates is ReferenceOrigin) => Some(Y)
+    "ref x" if coordinates is ReferenceOrigin => Some(X)
+    "ref y" if coordinates is ReferenceOrigin => Some(Y)
     "rot" | "rotation" => Some(Angle)
     "side" | "layer" => Some(Layer)
     "val" | "value" | "comment" => Some(Value)
@@ -62,10 +68,11 @@ fn column(name : String) -> Column? {
 fn placement_columns(
   row : CsvRow,
   source : String,
+  coordinates : CoordinateColumns,
 ) -> Map[Column, Int32] raise InputError {
   let columns : Map[Column, Int32] = Map([])
   for index, name in row.fields {
-    if column(name) is Some(kind) {
+    if column(name, coordinates) is Some(kind) {
       if columns.contains(kind) {
         raise InvalidInput(
           source,
@@ -75,7 +82,15 @@ fn placement_columns(
       columns[kind] = index
     }
   }
-  for required in [Ref, X, Y, Angle, Layer] {
+  let coordinate_error = match coordinates {
+    DefaultCoordinates => "表头必须包含位号、X、Y、角度和板面"
+    Midpoint => "所选坐标口径要求 Mid X 和 Mid Y 两列"
+    ReferenceOrigin => "所选坐标口径要求 Ref X 和 Ref Y 两列"
+  }
+  if !columns.contains(X) || !columns.contains(Y) {
+    raise InvalidInput(source, coordinate_error)
+  }
+  for required in [Ref, Angle, Layer] {
     if !columns.contains(required) {
       raise InvalidInput(
         source, "表头必须包含位号、X、Y、角度和板面",
@@ -126,11 +141,56 @@ pub fn read_placements(
   input : String,
   source~ : String,
 ) -> PlacementTable raise InputError {
+  read_placement_table(input, source, default_table_import(), allow_empty=false)
+}
+
+///|
+/// Read both original CSVs with the same policy that will drive the audit.
+pub fn read_placement_pair(
+  baseline : String,
+  delivery : String,
+  policy : Policy,
+  baseline_source~ : String,
+  delivery_source~ : String,
+) -> (PlacementTable, PlacementTable) raise InputError {
+  match policy.placement_import {
+    Some(profile) => {
+      let allow_empty = profile.scope is Expected(_)
+      (
+        read_placement_table(
+          baseline,
+          baseline_source,
+          profile.baseline,
+          allow_empty~,
+        ),
+        read_placement_table(
+          delivery,
+          delivery_source,
+          profile.delivery,
+          allow_empty~,
+        ),
+      )
+    }
+    None =>
+      (
+        read_placements(baseline, source=baseline_source),
+        read_placements(delivery, source=delivery_source),
+      )
+  }
+}
+
+///|
+fn read_placement_table(
+  input : String,
+  source : String,
+  settings : TableImport,
+  allow_empty~ : Bool,
+) -> PlacementTable raise InputError {
   let rows = parse_csv(input, source)
-  if rows.length() < 2 {
+  if rows.is_empty() || (rows.length() < 2 && !allow_empty) {
     raise InvalidInput(source, "需要表头和至少一个器件")
   }
-  let columns = placement_columns(rows[0], source)
+  let columns = placement_columns(rows[0], source, settings.coordinates)
   let placements : Map[String, Placement] = Map([])
   for i in 1..<rows.length() {
     let row = rows[i]
@@ -160,11 +220,27 @@ pub fn read_placements(
       Some(index) => row.fields[index].trim().to_owned()
       None => ""
     }
-    let footprint = match columns.get(Package) {
+    let raw_footprint = match columns.get(Package) {
       Some(index) => row.fields[index].trim().to_owned()
       None => ""
     }
+    let prefix = settings.footprint_prefix
+    let footprint = if !prefix.is_empty() && raw_footprint.has_prefix(prefix) {
+      if raw_footprint == prefix {
+        raise InvalidInput(where_, "封装库前缀后缺少封装名称")
+      }
+      raw_footprint[prefix.length():].to_owned()
+    } else {
+      raw_footprint
+    }
     placements[refdes] = { refdes, xy, angle_deg, side, value, footprint, }
   }
-  { rows: placements, }
+  {
+    rows: placements,
+    imported_with: settings,
+    coordinate_headers: (
+      rows[0].fields[columns[X]].trim().to_owned(),
+      rows[0].fields[columns[Y]].trim().to_owned(),
+    ),
+  }
 }

@@ -38,6 +38,8 @@ pub fn polygon_centroid(Array[Point]) -> Point
 
 pub fn polygon_contains(Array[Point], Point) -> Bool
 
+pub fn read_placement_pair(String, String, Policy, baseline_source~ : String, delivery_source~ : String) -> (PlacementTable, PlacementTable) raise InputError
+
 pub fn read_placements(String, source~ : String) -> PlacementTable raise InputError
 
 pub fn read_policy(String) -> Policy raise InputError

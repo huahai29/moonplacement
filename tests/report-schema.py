@@ -10,12 +10,14 @@ Draft202012Validator.check_schema(schema)
 validator = Draft202012Validator(schema)
 command = ["node", "_build/js/debug/build/cmd/main/main.js"]
 tables = ["examples/baseline.csv", "examples/delivery-ok.csv", "examples/policy.json"]
+cross_eda = Path("examples/hardware/antmicro-usb-c-power-adapter")
 cases = [
     tables,
     [*tables, "examples/gerber/panel-cell-2x2.gbr", "--panel-cell", "2,2"],
     [*tables, "examples/gerber/arc-clearance.gbr"],
     [*tables, "examples/gerber/panel-sr.gbr"],
     ["examples/baseline.csv", "examples/delivery-errors.csv", "examples/policy.json"],
+    [str(cross_eda / name) for name in ("kicad-placement.csv", "easyeda-pro-placement.csv", "import-policy.json")],
     [],
 ]
 for args in cases:

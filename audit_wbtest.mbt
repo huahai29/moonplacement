@@ -42,6 +42,7 @@ fn fixture_table(rows : String) -> PlacementTable raise InputError {
 /// differences remain.
 fn matching_policy(
   anchors~ : Array[String] = ["R1", "R2", "R3"],
+  placement_import~ : Json? = None,
 ) -> Policy raise InputError {
   let convention : Json = {
     "unit": Json("mm"),
@@ -50,7 +51,7 @@ fn matching_policy(
     "top_angle_offset_deg": Json(0),
     "bottom_angle_offset_deg": Json(0),
   }
-  let policy : Json = {
+  let policy : Map[String, Json] = {
     "baseline": convention,
     "delivery": convention,
     "anchors": Json(anchors),
@@ -59,7 +60,10 @@ fn matching_policy(
     "angle_tolerance_deg": Json(1),
     "anchor_tolerance_mm": Json(0.02),
   }
-  read_policy(policy.stringify())
+  if placement_import is Some(profile) {
+    policy["placement_import"] = profile
+  }
+  read_policy(Json::object(policy).stringify())
 }
 
 ///|

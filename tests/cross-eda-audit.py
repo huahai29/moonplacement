@@ -20,7 +20,6 @@ BOTTOM = FIXTURE / "usb-c-power-adapter-B_Cu.gbr"
 ANCHORS = ["C1", "C10", "C15"]
 TARGET = "C17"
 OFFSET = Decimal("0.30")
-KICAD_FIELDS = ["Ref", "Val", "Package", "PosX", "PosY", "Rot", "Side"]
 
 
 def save_json(path, data):
@@ -35,13 +34,13 @@ def read_rows(path, key):
     return by_ref
 
 
-def write_table(path, rows, *, shift=False):
+def write_table(path, rows, *, shift_column=None):
     with path.open("w", encoding="utf-8", newline="") as stream:
-        writer = csv.DictWriter(stream, KICAD_FIELDS, lineterminator="\n")
+        writer = csv.DictWriter(stream, list(next(iter(rows.values()))), lineterminator="\n")
         writer.writeheader()
-        for row in rows.values():
-            if shift and row["Ref"] == TARGET:
-                row = {**row, "PosX": str(Decimal(row["PosX"]) + OFFSET)}
+        for ref, row in rows.items():
+            if shift_column and ref == TARGET:
+                row = {**row, shift_column: str(Decimal(row[shift_column]) + OFFSET)}
             writer.writerow(row)
     return path
 
@@ -93,37 +92,52 @@ def main():
     assert position_deltas.keys() == {"J1", "Q1", "J2", "J3"}
     assert close(position_deltas["J1"], 1.123)
 
-    # Select the same assembly scope and compare the footprint origins.
-    # Strip only the known library prefix from this pinned export.
-    prefix = "antmicro-footprints:"
-    assert all(easyeda[ref]["Footprint"].startswith(prefix) for ref in kicad)
-    common = {ref: dict(Ref=ref, Val=easyeda[ref]["Comment"],
-                        Package=easyeda[ref]["Footprint"].removeprefix(prefix),
-                        PosX=easyeda[ref]["Ref X"], PosY=easyeda[ref]["Ref Y"],
-                        Rot=easyeda[ref]["Rotation"], Side=easyeda[ref]["Layer"])
-              for ref in kicad}
-    largest = max((math.hypot(float(row["PosX"]) - float(common[ref]["PosX"]),
-                              float(row["PosY"]) - float(common[ref]["PosY"])), ref)
+    largest = max((math.hypot(float(row["PosX"]) - float(easyeda[ref]["Ref X"]),
+                              float(row["PosY"]) - float(easyeda[ref]["Ref Y"])), ref)
                   for ref, row in kicad.items())
     assert largest[1] == "R25" and close(largest[0], 0.000136)
-    comparable = write_table(OUTPUT / "easyeda-common-origins.csv", common)
-    matched = run("02-common-origins", CLI, [kicad_file, comparable, policy], exit_code=0)
+    configured = FIXTURE / "import-policy.json"
+    assert set(json.loads(configured.read_text(encoding="utf-8"))["placement_import"]["expected_refs"]) == kicad.keys()
+    matched = run("02-common-origins", CLI, [kicad_file, easyeda_file, configured], exit_code=0)
     assert matched["status"] == "pass" and matched["differences"] == []
     assert matched["frame"]["max_anchor_error_mm"] < 1e-9
+    assert matched["baseline_count"] == matched["delivery_count"] == 97
+    imported = matched["placement_import"]
+    imported["delivery"]["excluded_refs"] = sorted(imported["delivery"]["excluded_refs"])
+    assert imported == {
+        "scope": "expected",
+        "baseline": dict(x_column="PosX", y_column="PosY", footprint_prefix="", excluded_refs=[]),
+        "delivery": dict(x_column="Ref X", y_column="Ref Y",
+                         footprint_prefix="antmicro-footprints:", excluded_refs=extra),
+    }
 
-    blocked = run("03-native-dual-copper", CLI, [kicad_file, comparable, policy, TOP, BOTTOM], exit_code=64)
+    blocked = run("03-native-dual-copper", CLI, [kicad_file, easyeda_file, configured, TOP, BOTTOM], exit_code=64)
     assert blocked["status"] == "input_error" and "FreePoly0" in blocked["message"]
     assert Path(blocked["field"]) == TOP
-    changed_kicad = write_table(OUTPUT / "kicad-c17-shifted.csv", kicad, shift=True)
-    changed_easyeda = write_table(OUTPUT / "easyeda-c17-shifted.csv", common, shift=True)
+    changed_kicad = write_table(OUTPUT / "kicad-c17-shifted.csv", kicad, shift_column="PosX")
+    changed_easyeda = write_table(OUTPUT / "easyeda-c17-shifted.csv", easyeda, shift_column="Ref X")
+    deleted_easyeda = write_table(OUTPUT / "easyeda-c17-missing.csv", {k: v for k, v in easyeda.items() if k != TARGET})
+    deleted_kicad = write_table(OUTPUT / "kicad-c17-missing.csv", {k: v for k, v in kicad.items() if k != TARGET})
+    for label, baseline_csv, delivery_csv, kind in [
+        ("07-missing-delivery", kicad_file, deleted_easyeda, "missing"),
+        ("08-missing-both", deleted_kicad, deleted_easyeda, "missing_both"),
+        ("09-missing-baseline", deleted_kicad, easyeda_file, "missing_baseline"),
+    ]:
+        missing = run(label, CLI, [baseline_csv, delivery_csv, configured], exit_code=1)
+        assert component_pairs(missing["differences"]) == [(TARGET, kind)]
+        assert sorted(missing["placement_import"]["delivery"]["excluded_refs"]) == extra
+    shifted = run("10-c17-delivery-position", CLI, [kicad_file, changed_easyeda, configured], exit_code=1)
+    assert component_pairs(shifted["differences"]) == [(TARGET, "position")]
+    assert close(shifted["differences"][0]["distance_mm"], float(OFFSET))
+
     cases = [
-        ("04-native-bottom", kicad_file, comparable, [], False),
+        ("04-native-bottom", kicad_file, easyeda_file, [], False),
         ("05-c17-delivery-shift", kicad_file, changed_easyeda, [(TARGET, "position")], True),
         ("06-c17-both-shift", changed_kicad, changed_easyeda, [], True),
     ]
     results = {}
     for name, baseline, delivery, table_differences, shifted in cases:
-        result = run(name, BOTTOM_FIXTURE, [baseline, delivery, policy, BOTTOM], exit_code=0)
+        result = run(name, BOTTOM_FIXTURE, [baseline, delivery, configured, BOTTOM], exit_code=0)
         assert result["status"] == "different"  # J1 is present in every raw-bottom report.
         assert result["pad_status"] == "complete" and result["pad_checked"] == 44
         assert result["pad_sides"] == ["bottom"]

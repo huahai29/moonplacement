@@ -19,6 +19,43 @@ function run(args, expectedExit, nodeArgs = []) {
   return JSON.parse(result.stdout);
 }
 
+test('placement profiles validate the chosen columns, literal prefix and scope', t => {
+  const work = mkdtempSync(join(tmpdir(), 'moonplacement-import-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const input = join(work, 'policy.json');
+  const fixture = 'examples/hardware/antmicro-usb-c-power-adapter';
+  const base = join(fixture, 'kicad-placement.csv');
+  const target = join(fixture, 'easyeda-pro-placement.csv');
+  const settings = JSON.parse(readFileSync(join(fixture, 'import-policy.json'), 'utf8'));
+  const { expected_refs, delivery: rule } = settings.placement_import;
+  const audit = (profile, exit) => {
+    writeFileSync(input, JSON.stringify({ ...settings, placement_import: profile }));
+    return run([base, target, input], exit);
+  };
+  for (const [profile, field] of [
+    [{ expected_refs, exclude_refs: ['TP1'] }, 'placement_import'],
+    [{ expected_refs: ['C1', 'c1'] }, 'placement_import.expected_refs'],
+    [{ exclude_refs: [' c1 '] }, 'placement_import'],
+    [{ expected_refs: [] }, 'placement_import.expected_refs'],
+    [{ delivery: { coordinates: 'center' } }, 'placement_import.delivery.coordinates'],
+    [{ delivery: { footprint_prefix: 'antmicro-footprints' } }, 'placement_import.delivery.footprint_prefix'],
+    [{ delivery: { coordinate: 'ref' } }, 'placement_import.delivery.coordinate'],
+  ]) {
+    assert.equal(audit(profile, 64).field, field);
+  }
+  const missingPair = audit({ baseline: { coordinates: 'ref' } }, 64);
+  assert.match(missingPair.message, /Ref X 和 Ref Y/);
+  const centre = audit({ expected_refs, delivery: { ...rule, coordinates: 'mid' } }, 1);
+  assert.equal(centre.placement_import.delivery.x_column, 'Mid X');
+  assert.deepEqual(centre.differences.map(({ kind }) => kind), Array(4).fill('position'));
+  const wrongPrefix = audit({ expected_refs, delivery: { ...rule, footprint_prefix: 'other:' } }, 1);
+  assert.deepEqual(wrongPrefix.differences.map(({ kind }) => kind), Array(97).fill('package'));
+  const excluded = audit({ delivery: rule, exclude_refs: [' tp1 '] }, 1);
+  assert.equal(excluded.placement_import.scope, 'excluded');
+  assert.deepEqual(excluded.placement_import.delivery.excluded_refs, ['TP1']);
+  assert.ok(excluded.differences.some(item => item.ref === 'TP2' && item.kind === 'extra'));
+});
+
 test('evaluates flash scaling and transformed aperture macros before auditing pads', () => {
   for (const [file, exit, status, count, distance] of [
     ['pad-scaled.gbr', 1, 'different', 2, 0.6],

@@ -19,6 +19,31 @@
 
 底面 X 与角度约定分别配置。例如 KiCad 的底面 X 取反选项改动 X 坐标，角度仍按原角度字段导出。输入必须使用可换算的器件中心和角度零位。合并表应使用同一面板、同一版次及一致的 DNP 筛选规则。参见 [KiCad 位置文件导出](https://docs.kicad.org/9.0/en/cli/cli.html#pcb-export-position-file)和[嘉立创贴片文件说明](https://jlcpcb.com/help/article/pick-place-file-for-pcb-assembly)。
 
+### 跨工具导入口径
+
+在现有配置中加入可选的 `placement_import`。它适用于 CLI 和网页工作台，两份输入可以直接使用原始 CSV。以下片段假定基准表使用 KiCad 默认坐标列，且所列位号包含配置中的全部基准件。
+
+```json
+{
+  "placement_import": {
+    "delivery": {
+      "coordinates": "ref",
+      "footprint_prefix": "antmicro-footprints:"
+    },
+    "expected_refs": ["C1", "C10", "C15", "C17"]
+  }
+}
+```
+
+| 字段 | 规则 |
+| --- | --- |
+| `baseline.coordinates` / `delivery.coordinates` | `auto` 沿用原有的 `PosX/PosY` 或 `Mid X/Y`；`mid` 明确使用 `Mid X/Y`；`ref` 明确使用 `Ref X/Y`。所选列必须齐全 |
+| `baseline.footprint_prefix` / `delivery.footprint_prefix` | 区分大小写的字面前缀，以冒号结尾。仅移除开头完全匹配的一次 |
+| `expected_refs` | 根据 BOM 或已确认的贴装范围填入应贴位号。表外位号不参与核对；应贴件缺在送厂表、基准表或两表时，分别记录为 `missing`、`missing_baseline`、`missing_both` |
+| `exclude_refs` | 明确列出本批次要排除的位号，剩余位号继续参与核对。与 `expected_refs` 二选一 |
+
+两种名单都支持位号大小写与首尾空白归一化，必须保留全部配准基准。省略名单时核对全部位号。JSON 的可选 `placement_import` 和 HTML 的「导入口径」记录两表各自用的坐标列、配置的库前缀和实际排除的位号。[真实导出与完整配置](cross-eda.md)
+
 ## 怎么对齐
 
 1. 将两表坐标换成毫米，应用各表的底面 X 约定。自动模式会尝试两种底面约定，有底面数据时两种都保留为候选。

@@ -3,13 +3,16 @@ extern "js" fn read_test_file(index : Int32) -> String = "(index) => process.get
 
 ///|
 fn main {
-  let baseline = @mp.read_placements(read_test_file(0), source="kicad") catch {
-    @mp.InvalidInput(_, message) => abort(message)
-  }
-  let delivery = @mp.read_placements(read_test_file(1), source="easyeda") catch {
-    @mp.InvalidInput(_, message) => abort(message)
-  }
   let policy = @mp.read_policy(read_test_file(2)) catch {
+    @mp.InvalidInput(_, message) => abort(message)
+  }
+  let (baseline, delivery) = @mp.read_placement_pair(
+    read_test_file(0),
+    read_test_file(1),
+    policy,
+    baseline_source="kicad",
+    delivery_source="easyeda",
+  ) catch {
     @mp.InvalidInput(_, message) => abort(message)
   }
   let bottom = @mp.parse_gerber(read_test_file(3), source="bottom copper") catch {

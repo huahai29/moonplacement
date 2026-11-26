@@ -44,9 +44,10 @@ fn contract_items(items : Json) -> Json {
 }
 
 ///|
-fn contract_object(properties : Json) -> Json {
+fn contract_object(properties : Json, optional~ : Array[String] = []) -> Json {
   let required = match properties {
-    Object(fields) => fields.keys().collect()
+    Object(fields) =>
+      fields.keys().filter(key => !optional.contains(key)).collect()
     _ => abort("contract property definition must be an object")
   }
   {
@@ -104,7 +105,13 @@ pub fn report_contract() -> Json {
     }),
   })
   let pad_warning = contract_object({ "side": side, "message": text })
-  let audit = contract_object({
+  let table_import = contract_object({
+    "x_column": text,
+    "y_column": text,
+    "footprint_prefix": text,
+    "excluded_refs": contract_items(text),
+  })
+  let audit_properties : Json = {
     "schema_version": schema_version,
     "status": contract_enum(verdicts.map(verdict_name)),
     "reason": nullable_string,
@@ -126,13 +133,19 @@ pub fn report_contract() -> Json {
     "panel_cells": contract_items(panel_cell),
     "pad_evidence": contract_items(pad_evidence),
     "pad_warnings": contract_items(pad_warning),
+    "placement_import": contract_object({
+      "scope": contract_enum(["all", "expected", "excluded"]),
+      "baseline": table_import,
+      "delivery": table_import,
+    }),
     "tolerances": contract_object({
       "position_mm": number,
       "angle_deg": number,
       "anchor_mm": number,
       "pad_mm": number,
     }),
-  })
+  }
+  let audit = contract_object(audit_properties, optional=["placement_import"])
   let input_error = contract_object({
     "schema_version": schema_version,
     "status": { "const": Json("input_error") },

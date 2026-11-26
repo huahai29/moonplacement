@@ -42,6 +42,7 @@ pub struct Policy {
   priv angle_deg : Double
   priv anchor_mm : Double
   priv pad_mm : Double
+  priv placement_import : PlacementImport?
 }
 
 ///|
@@ -217,5 +218,6 @@ pub fn read_policy(input : String) -> Policy raise InputError {
     angle_deg: tolerance(raw.angle_tolerance_deg, 180.0, "angle_tolerance_deg"),
     anchor_mm: tolerance(raw.anchor_tolerance_mm, 100.0, "anchor_tolerance_mm"),
     pad_mm,
+    placement_import: read_placement_import(document, anchors),
   }
 }

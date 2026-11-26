@@ -128,6 +128,43 @@ fn differences_table(items : Array[Json]) -> String {
 }
 
 ///|
+fn import_html(report : Json) -> String {
+  guard json_get(report, "placement_import") is Some(settings) else {
+    return ""
+  }
+  let scope = match json_string(settings, "scope") {
+    "expected" => "应贴位号"
+    "excluded" => "排除清单"
+    _ => "全部位号"
+  }
+  let html = StringBuilder()
+  html.write_string("<h2>导入口径</h2><p>贴装范围：\{scope}</p><ul>")
+  for (key, label) in [("baseline", "基准表"), ("delivery", "送厂表")] {
+    guard json_get(settings, key) is Some(table) else { continue }
+    let x = escape_html(json_string(table, "x_column"))
+    let y = escape_html(json_string(table, "y_column"))
+    let prefix = escape_html(json_string(table, "footprint_prefix"))
+    let omitted = json_array(table, "excluded_refs").filter_map(item => {
+      match item {
+        String(reference) => Some(escape_html(reference))
+        _ => None
+      }
+    })
+    let prefix_label = if prefix.is_empty() { "无" } else { prefix }
+    let omitted_label = if omitted.is_empty() {
+      "无"
+    } else {
+      omitted.join("、")
+    }
+    html.write_string(
+      "<li>\{label}：坐标列 \{x} / \{y} · 库前缀规则 \{prefix_label} · 未核对位号 \{omitted_label}</li>",
+    )
+  }
+  html.write_string("</ul>")
+  html.to_string()
+}
+
+///|
 /// Render a self-contained HTML report. The board map uses the trusted baseline
 /// positions and draws a red arrow for every reported position offset.
 pub fn render_html(report : Json, baseline : PlacementTable) -> String {
@@ -152,7 +189,20 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
   for item in pad_differences {
     pads[json_string(item, "ref")] = true
   }
-  let rows = baseline.rows
+  let excluded : Map[String, Bool] = Map([])
+  if json_get(report, "placement_import") is Some(settings) &&
+    json_get(settings, "baseline") is Some(table) {
+    for item in json_array(table, "excluded_refs") {
+      if item is String(reference) {
+        excluded[reference] = true
+      }
+    }
+  }
+  let rows = if excluded.is_empty() {
+    baseline.rows
+  } else {
+    scoped_rows(baseline.rows, Excluded(excluded)).0
+  }
   let mut min_x = 1.0e9
   let mut max_x = -1.0e9
   let mut min_y = 1.0e9
@@ -238,6 +288,7 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
   html.write_string(
     "<p>基准器件 \{json_int(report, "baseline_count")} 个 · 送厂器件 \{json_int(report, "delivery_count")} 个</p>",
   )
+  html.write_string(import_html(report))
   html.write_string(svg.to_string())
   html.write_string(
     "<p style=\"font-size:12px;color:#666\">绿：一致，红：器件差异，橙：铜层差异；红箭头表示位置偏差。</p>",

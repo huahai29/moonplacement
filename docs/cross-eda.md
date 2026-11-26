@@ -8,7 +8,7 @@ KiCad 导出 97 个贴装位号，顶面 53 个、底面 44 个。嘉立创导�
 
 原表直比报告 27 个额外位号、97 个封装名差异和 4 个位置差异，未发现错面、漏件或角度超限。封装名差异来自嘉立创保留了 `antmicro-footprints:` 库前缀。位置差异来自比较 KiCad 的封装原点与嘉立创的 `Mid X/Y`，其中 J1 差 **1.123 mm**，Q1 约 **0.440 mm**，J2、J3 各约 **0.183 mm**。
 
-按同一装配范围取 97 个位号，将嘉立创 `Ref X/Y` 对应到 KiCad 封装原点，并去掉这一样例中明确的封装库前缀后，两表核对通过。最大坐标差 **0.000136 mm** 在 R25。表格原始输入和两种报告均可复查。[嘉立创导出字段定义](https://prodocs.lceda.cn/cn/pcb/export-pick-and-place-file/)
+用[实板导入配置](../examples/hardware/antmicro-usb-c-power-adapter/import-policy.json)读取两份原始表。配置列出 KiCad SMD 导出的 97 个应贴位号，将嘉立创的 `Ref X/Y` 对应到 KiCad 封装原点，并移除这一样例的封装库前缀。两表核对通过，最大坐标差 **0.000136 mm** 在 R25。报告列出本次范围之外的 27 个位号。删除送厂表中的 C17 后，报告仍能确认漏件。[嘉立创导出字段定义](https://prodocs.lceda.cn/cn/pcb/export-pick-and-place-file/)
 
 ## 用原始底铜核对 C17
 
@@ -28,7 +28,8 @@ KiCad 导出 97 个贴装位号，顶面 53 个、底面 44 个。嘉立创导�
 
 ```sh
 moon build --target js
+node _build/js/debug/build/cmd/main/main.js examples/hardware/antmicro-usb-c-power-adapter/kicad-placement.csv examples/hardware/antmicro-usb-c-power-adapter/easyeda-pro-placement.csv examples/hardware/antmicro-usb-c-power-adapter/import-policy.json
 python tests/cross-eda-audit.py
 ```
 
-脚本验证原始文件哈希，在 `_build/cross-eda/validation/` 写入派生 CSV、六份 JSON 报告及 `summary.json`。Windows 和 Linux CI 使用同一份输入，Linux 运行保留这些输出。
+也可把这两份原始 CSV 和配置上传到[在线工作台](https://huahai29.github.io/moonplacement/)，查看一致的报告。测试脚本验证原始文件哈希，并在 `_build/cross-eda/validation/` 写入漏件和偏位副本、JSON 报告及 `summary.json`。Windows 和 Linux CI 使用同一份输入，Linux 运行保留这些输出。

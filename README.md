@@ -48,6 +48,8 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 2. 复制[示例配置](examples/policy.json)，填写单位、底面 X 和角度约定，选至少三颗位置分散且确认正确的器件作为对齐基准。自动判断底面 X 时，选一颗远离 X=0 的底面基准。
 3. 运行上面的命令。核对铜层时，先传顶层、再传底层。Gerber 与设计坐标表须使用同一原点和坐标方向。
 
+KiCad 与嘉立创 EDA 混用时，可在同一份配置里选择封装原点或中心、封装库前缀和本批次应贴位号。CLI 和工作台都能直接读取原始 CSV。[配置示例与实测](docs/cross-eda.md)
+
 报告先看 `status`，再看 `differences`（两表差异）和 `pad_evidence`（铜层证据）。无法对齐时，查看 `frame.anchor_residuals` 或 `rejected_frames` 排查基准。焊盘归属来自 Gerber X2 位号；缺少归属时，附近有铜也不足以确认器件。非对称封装的贴装原点可能和铜形中心不同。
 
 | 退出码 | 状态 | 含义 |

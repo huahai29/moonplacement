@@ -70,6 +70,24 @@ test('local files stay in the browser and invalid UTF-8 is reported', async ({ p
   await expect(page.getByRole('link', { name: '下载核验凭据' })).toBeHidden();
 });
 
+test('the original KiCad and EasyEDA exports use the uploaded placement profile', async ({ page }) => {
+  const fixture = file => example(`hardware/antmicro-usb-c-power-adapter/${file}`);
+  await page.goto('/');
+  await page.locator('#baseline').setInputFiles(fixture('kicad-placement.csv'));
+  await page.locator('#delivery').setInputFiles(fixture('easyeda-pro-placement.csv'));
+  await page.locator('#policy').setInputFiles(fixture('import-policy.json'));
+  await page.getByRole('button', { name: '开始核对' }).click();
+  await expect(page.getByRole('status')).toHaveText('核对通过');
+  const preview = page.frameLocator('#report-frame');
+  await expect(preview.getByRole('heading', { name: '导入口径' })).toBeVisible();
+  await expect(preview.getByRole('listitem').filter({ hasText: 'Ref X / Ref Y' })).toContainText('TP1');
+  const report = JSON.parse(await download(page, '下载 JSON', 'moonplacement-report.json'));
+  expect(report.baseline_count).toBe(97);
+  expect(report.delivery_count).toBe(97);
+  expect(report.placement_import.delivery.excluded_refs).toHaveLength(27);
+  expect(report.placement_import.delivery.footprint_prefix).toBe('antmicro-footprints:');
+});
+
 test('an unavailable digest leaves the ordinary reports usable', async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(window.crypto, 'subtle', { value: undefined }));
   await page.goto('/');

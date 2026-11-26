@@ -18,6 +18,7 @@ pkgtype(kind: "executable")
 | 要做什么 | 入口 |
 | --- | --- |
 | 读取两份坐标表和配置 | `read_placements(csv, source=...)`、`read_policy(json)`。无效输入抛出 `InputError` |
+| 按配置读取原始坐标表 | 主分支提供 `read_placement_pair(baseline, delivery, policy, baseline_source=..., delivery_source=...)`。两张表和随后调用 `audit_checked` 应使用同一份 `Policy` |
 | 读取铜层 | `parse_gerber(text, source=...)`。无效或不支持的输入抛出 `GerberError` |
 | 只核对某个拼板单元 | 用 `parse_gerber_cell` 直接解析指定单元，或对已有整板文档调用 `select_panel_cell` |
 | 比较坐标表并核验所传板面 | `audit(baseline, delivery, policy, top_gerber=Some(top), bottom_gerber=Some(bottom))`。可省略任一未提供的铜层 |

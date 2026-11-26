@@ -176,7 +176,7 @@ pub fn audit(
 }
 
 ///|
-/// Audit with explicit input errors for Gerber layer-slot conflicts.
+/// Audit with explicit input errors for placement import and Gerber layer-slot conflicts.
 pub fn audit_checked(
   baseline_table : PlacementTable,
   delivery_table : PlacementTable,
@@ -184,6 +184,11 @@ pub fn audit_checked(
   top_gerber~ : GerberDocument? = None,
   bottom_gerber~ : GerberDocument? = None,
 ) -> AuditResult raise InputError {
+  if !placement_import_matches(policy, baseline_table, delivery_table) {
+    raise InvalidInput(
+      "placement_import", "请用同一份配置调用 read_placement_pair 读入两张表",
+    )
+  }
   let issues = check_layer_slots(top_gerber, bottom_gerber)
   if issues.get(0) is Some(issue) {
     raise InvalidInput(issue.source, issue.message)
@@ -202,8 +207,15 @@ fn audit_impl(
   bottom_gerber : GerberDocument?,
   layer_issues : Array[LayerIssue],
 ) -> AuditResult {
-  let baseline = baseline_table.rows
-  let delivery = delivery_table.rows
+  let scope = match policy.placement_import {
+    Some(profile) => profile.scope
+    None => All
+  }
+  let (baseline, excluded_baseline) = scoped_rows(baseline_table.rows, scope)
+  let (delivery, excluded_delivery) = scoped_rows(delivery_table.rows, scope)
+  let import_matches = placement_import_matches(
+    policy, baseline_table, delivery_table,
+  )
   let anchor_issues : Array[Json] = []
   let pairs : Array[AnchorPair] = []
   for key in policy.anchors {
@@ -231,7 +243,7 @@ fn audit_impl(
   }
   let has_bottom = baseline.values().any(part => part.side == Bottom) ||
     delivery.values().any(part => part.side == Bottom)
-  let search = if anchor_issues.is_empty() {
+  let search = if import_matches && anchor_issues.is_empty() {
     candidate_frames(pairs, policy, has_bottom)
   } else {
     { baseline_has_area: false, accepted: [], rejected: [], }
@@ -249,7 +261,7 @@ fn audit_impl(
   let swap_for_missing : Map[String, String] = Map([])
   let swapped_extra : Map[String, Bool] = Map([])
   match frame {
-    Some(chosen) => {
+    Some(chosen) if !(scope is Expected(_)) => {
       let limit = (policy.position_mm * 2.0).max(0.2)
       for key in missing {
         let expected = position(
@@ -280,7 +292,7 @@ fn audit_impl(
         }
       }
     }
-    None => ()
+    _ => ()
   }
   let evidence : Array[Json] = []
   for key in keys {
@@ -300,7 +312,18 @@ fn audit_impl(
   }
   for key in extra {
     if !swapped_extra.contains(key) {
-      evidence.push({ "ref": Json(key), "kind": Json("extra") })
+      let kind = if scope is Expected(_) { "missing_baseline" } else { "extra" }
+      evidence.push({ "ref": Json(key), "kind": Json(kind) })
+    }
+  }
+  if scope is Expected(expected) {
+    let absent = expected
+      .keys()
+      .filter(key => !baseline.contains(key) && !delivery.contains(key))
+      .collect()
+    absent.sort()
+    for key in absent {
+      evidence.push({ "ref": Json(key), "kind": Json("missing_both") })
     }
   }
   let pad_differences : Array[Json] = []
@@ -414,7 +437,9 @@ fn audit_impl(
   } else {
     "complete"
   }
-  let (verdict, reason) = if !layer_issues.is_empty() {
+  let (verdict, reason) = if !import_matches {
+    (Indeterminate, Json("invalid_placement_import"))
+  } else if !layer_issues.is_empty() {
     (Indeterminate, Json("invalid_gerber_layer"))
   } else if !anchor_issues.is_empty() {
     (Indeterminate, Json("invalid_anchors"))
@@ -433,7 +458,7 @@ fn audit_impl(
   } else {
     (Pass, Json(null))
   }
-  let report : Json = {
+  let report : Map[String, Json] = {
     "schema_version": Json(REPORT_SCHEMA_VERSION),
     "status": Json(verdict_name(verdict)),
     "reason": reason,
@@ -465,5 +490,12 @@ fn audit_impl(
       "pad_mm": Json(policy.pad_mm),
     },
   }
-  { verdict, report, }
+  if policy.placement_import is Some(_) {
+    report["placement_import"] = {
+      "scope": Json(scope.label()),
+      "baseline": table_import_json(baseline_table, excluded_baseline),
+      "delivery": table_import_json(delivery_table, excluded_delivery),
+    }
+  }
+  { verdict, report: Json::object(report), }
 }

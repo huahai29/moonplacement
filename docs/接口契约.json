@@ -269,6 +269,75 @@
             }
           }
         },
+        "placement_import": {
+          "type": "object",
+          "required": [
+            "scope",
+            "baseline",
+            "delivery"
+          ],
+          "properties": {
+            "scope": {
+              "enum": [
+                "all",
+                "expected",
+                "excluded"
+              ]
+            },
+            "baseline": {
+              "type": "object",
+              "required": [
+                "x_column",
+                "y_column",
+                "footprint_prefix",
+                "excluded_refs"
+              ],
+              "properties": {
+                "x_column": {
+                  "type": "string"
+                },
+                "y_column": {
+                  "type": "string"
+                },
+                "footprint_prefix": {
+                  "type": "string"
+                },
+                "excluded_refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "delivery": {
+              "type": "object",
+              "required": [
+                "x_column",
+                "y_column",
+                "footprint_prefix",
+                "excluded_refs"
+              ],
+              "properties": {
+                "x_column": {
+                  "type": "string"
+                },
+                "y_column": {
+                  "type": "string"
+                },
+                "footprint_prefix": {
+                  "type": "string"
+                },
+                "excluded_refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
         "tolerances": {
           "type": "object",
           "required": [

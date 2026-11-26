@@ -303,23 +303,22 @@ fn run() -> Int32 raise @placement.InputError {
       fingerprints,
     ),
   )
-  let baseline = @placement.read_placements(
+  let (baseline, delivery) = @placement.read_placement_pair(
     load_file(
       positional[0],
       @placement.INPUT_FILE_MAX_BYTES,
       "baseline",
       fingerprints,
     ),
-    source=positional[0],
-  )
-  let delivery = @placement.read_placements(
     load_file(
       positional[1],
       @placement.INPUT_FILE_MAX_BYTES,
       "delivery",
       fingerprints,
     ),
-    source=positional[1],
+    policy,
+    baseline_source=positional[0],
+    delivery_source=positional[1],
   )
   let top = if positional.length() >= 4 {
     Some(load_layer(positional[3], args.cell, "top_gerber", fingerprints))

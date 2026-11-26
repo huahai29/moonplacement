@@ -63,8 +63,13 @@ pub fn audit_files(
       raise @mp.InvalidInput("top", "请选择顶层 Gerber 铜层")
     }
     let policy = @mp.read_policy(policy_json)
-    let baseline = @mp.read_placements(baseline_csv, source=baseline_file)
-    let delivery = @mp.read_placements(delivery_csv, source=delivery_file)
+    let (baseline, delivery) = @mp.read_placement_pair(
+      baseline_csv,
+      delivery_csv,
+      policy,
+      baseline_source=baseline_file,
+      delivery_source=delivery_file,
+    )
     let top = read_layer(top_gerber, top_file, row, column)
     let bottom = read_layer(
       bottom_gerber,
