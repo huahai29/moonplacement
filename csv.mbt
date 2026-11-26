@@ -4,12 +4,13 @@ pub(all) suberror InputError {
 }
 
 ///|
+#derive(Eq)
 priv enum CsvState {
   Start
   Bare
   Quoted
   Closed
-} derive(Eq)
+}
 
 ///|
 priv struct CsvRow {

@@ -1,8 +1,9 @@
 ///|
+#derive(Eq)
 priv enum Side {
   Top
   Bottom
-} derive(Eq)
+}
 
 ///|
 /// A point in millimetres, shared by the audit pipeline and the registration
@@ -36,6 +37,7 @@ pub struct PlacementTable {
 }
 
 ///|
+#derive(Eq, Hash)
 priv enum Column {
   Ref
   X
@@ -44,7 +46,7 @@ priv enum Column {
   Layer
   Value
   Package
-} derive(Eq, Hash)
+}
 
 ///|
 fn column(name : String, coordinates : CoordinateColumns) -> Column? {

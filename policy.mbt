@@ -47,15 +47,17 @@ pub struct Policy {
 }
 
 ///|
+#derive(FromJson)
 priv struct FileJson {
   unit : String
   bottom_x : String
   angle_sign : Int32
   top_angle_offset_deg : Double
   bottom_angle_offset_deg : Double
-} derive(FromJson)
+}
 
 ///|
+#derive(FromJson)
 priv struct PolicyJson {
   baseline : FileJson
   delivery : FileJson
@@ -64,7 +66,7 @@ priv struct PolicyJson {
   position_tolerance_mm : Double
   angle_tolerance_deg : Double
   anchor_tolerance_mm : Double
-} derive(FromJson)
+}
 
 ///|
 fn read_convention(

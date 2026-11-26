@@ -1,15 +1,17 @@
 ///|
+#derive(Eq)
 priv enum CoordinateColumns {
   DefaultCoordinates
   Midpoint
   ReferenceOrigin
-} derive(Eq)
+}
 
 ///|
+#derive(Eq)
 priv struct TableImport {
   coordinates : CoordinateColumns
   footprint_prefix : String
-} derive(Eq)
+}
 
 ///|
 priv enum AssemblyScope {

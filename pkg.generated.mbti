@@ -1,6 +1,10 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "huahai29/moonplacement"
 
+import {
+  "moonbitlang/core/json",
+}
+
 // Values
 pub const INPUT_ERROR_EXIT_CODE : Int32 = 64
 
@@ -16,9 +20,9 @@ pub fn audit_checked(PlacementTable, PlacementTable, Policy, top_gerber? : Gerbe
 
 pub fn audit_gerber_pair(PlacementTable, PlacementTable, Policy, String, String, top_source~ : String, bottom_source~ : String, cell? : (Int32, Int32)) -> AuditResult raise InputError
 
-pub fn audit_receipt(AuditResult, Array[ReceiptInput], host~ : String, build_sha256~ : String) -> Json
+pub fn audit_receipt(AuditResult, Array[ReceiptInput], host~ : String, build_sha256~ : String) -> @json.Json
 
-pub fn check_pads(GerberDocument, Array[String], Array[Point], Double) -> Array[Json]
+pub fn check_pads(GerberDocument, Array[String], Array[Point], Double) -> Array[@json.Json]
 
 pub fn copper_at(GerberDocument, Point, Double) -> Bool
 
@@ -26,7 +30,7 @@ pub fn copper_centroid(Array[CopperPad]) -> Point
 
 pub fn gerber_pads(GerberDocument) -> Array[CopperPad]
 
-pub fn input_error_report(String, String) -> Json
+pub fn input_error_report(String, String) -> @json.Json
 
 pub fn pad_groups(Array[CopperPad]) -> Map[String, Array[CopperPad]]
 
@@ -48,9 +52,9 @@ pub fn read_policy(String) -> Policy raise InputError
 
 pub fn register(Array[Point], Array[Point], TransformModel, Double) -> Registration?
 
-pub fn render_html(Json, PlacementTable) -> String
+pub fn render_html(@json.Json, PlacementTable) -> String
 
-pub fn report_contract() -> Json
+pub fn report_contract() -> @json.Json
 
 pub fn select_panel_cell(GerberDocument, row~ : Int32, column~ : Int32, source~ : String, reference? : GerberDocument) -> GerberDocument raise GerberError
 
@@ -66,7 +70,7 @@ pub(all) suberror InputError {
 // Types and methods
 pub struct AuditResult {
   verdict : Verdict
-  report : Json
+  report : @json.Json
 }
 
 pub struct CopperPad {
