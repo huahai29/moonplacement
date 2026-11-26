@@ -20,7 +20,7 @@ KiCad 导出 97 个贴装位号，顶面 53 个、底面 44 个。嘉立创导�
 | 只移动嘉立创表中 C17 的 X 坐标 | C17 偏移 0.30 mm | C17 偏移 0.30 mm |
 | 两表都移动 C17 的 X 坐标 | 通过 | C17 偏移 0.30 mm |
 
-此板的原始顶铜光圈宏 `FreePoly0` 在闭合处重复写入顶点，CLI 返回 `input_error`。回归保留原始文件和拒收行为。表中数字来自原始底铜路径，说明的是底面证据。[Gerber 2024.05 §4.5.1.6、§4.10.3](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf)
+此板的原始顶铜光圈宏 `FreePoly0` 在闭合处重复写入顶点。CLI 同时读取两层时，把顶铜标为 `failed`，仍能检查底铜的 44 个位号。两表都注入 C17 偏移时，同一份报告保留 C17 的 **0.30 mm** 底铜证据，整体为 `different`。回归另用未注入偏移、明确排除 J1 的范围复现另一结果，底铜 43 个位号无差异，顶铜仍失败，整体为 `indeterminate`。[Gerber 2024.05 §4.5.1.6、§4.10.3](https://www.ucamco.com/files/downloads/file_en/456/gerber-layer-format-specification-revision-2024-05_en.pdf)
 
 ## 复现
 

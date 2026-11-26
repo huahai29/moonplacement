@@ -14,6 +14,8 @@ pub fn audit(PlacementTable, PlacementTable, Policy, top_gerber? : GerberDocumen
 
 pub fn audit_checked(PlacementTable, PlacementTable, Policy, top_gerber? : GerberDocument?, bottom_gerber? : GerberDocument?) -> AuditResult raise InputError
 
+pub fn audit_gerber_pair(PlacementTable, PlacementTable, Policy, String, String, top_source~ : String, bottom_source~ : String, cell? : (Int32, Int32)) -> AuditResult raise InputError
+
 pub fn audit_receipt(AuditResult, Array[ReceiptInput], host~ : String, build_sha256~ : String) -> Json
 
 pub fn check_pads(GerberDocument, Array[String], Array[Point], Double) -> Array[Json]

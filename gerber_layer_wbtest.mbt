@@ -76,3 +76,57 @@ test "legacy FileFunction comments are read and conflicting declarations are rej
     assert_true(message.contains(".FileFunction"))
   }
 }
+
+///|
+test "dual copper records a failed layer without using it to check the other" {
+  let table = fixture_table(
+    "R1,1,1,0,top\nR2,7,1,0,top\nR3,1,7,0,top\nD1,4,4,0,bottom",
+  )
+  let policy = matching_policy()
+  let broken = "%FSLAX46Y46*%%MOINVALID*%M02*"
+  let bottom = "%FSLAX46Y46*%%MOMM*%%TF.FileFunction,Copper,L2,Bot*%" +
+    "%ADD10C,0.5*%D10*%TO.P,D1,1*%X4000000Y4000000D03*M02*"
+  let partial = audit_gerber_pair(
+    table,
+    table,
+    policy,
+    broken,
+    bottom,
+    top_source="bad.gbr",
+    bottom_source="bottom.gbr",
+  )
+  assert_true(partial.verdict is Indeterminate)
+  guard! partial.report
+    is {
+      "reason": String("incomplete_gerber_layers"),
+      "pad_layers": [
+        { "side": String("top"), "status": String("failed"), .. },
+        { "side": String("bottom"), "status": String("complete"), .. },
+      ],
+      ..
+    }
+  assert_true(
+    render_html(partial.report, table).contains(
+      "底铜已核验全部位号（1 / 1）",
+    ),
+  )
+  let bad_anchors = fixture_table("R1,1,1,0,top\nR2,7,1,0,top\nD1,4,4,0,bottom")
+  let skipped = audit_gerber_pair(
+    table,
+    bad_anchors,
+    policy,
+    broken,
+    bottom,
+    top_source="bad.gbr",
+    bottom_source="bottom.gbr",
+  )
+  guard! skipped.report
+    is {
+      "reason": String("invalid_anchors"),
+      "pad_layers": [
+        { "status": String("failed"), .. },
+        { "status": String("skipped"), .. },
+      ],
+      ..
+    }
+}

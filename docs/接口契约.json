@@ -269,6 +269,43 @@
             }
           }
         },
+        "pad_layers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "side",
+              "status",
+              "checked",
+              "targets"
+            ],
+            "properties": {
+              "side": {
+                "enum": [
+                  "top",
+                  "bottom"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "complete",
+                  "incomplete",
+                  "failed",
+                  "skipped"
+                ]
+              },
+              "checked": {
+                "type": "integer"
+              },
+              "targets": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "placement_import": {
           "type": "object",
           "required": [

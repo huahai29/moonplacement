@@ -245,7 +245,6 @@ fn load_layer(
   cell : (Int32, Int32)?,
   role : String,
   fingerprints : Array[@placement.ReceiptInput]?,
-  reference~ : @placement.GerberDocument? = None,
 ) -> @placement.GerberDocument raise @placement.InputError {
   let text = load_file(
     path,
@@ -255,7 +254,7 @@ fn load_layer(
   )
   try {
     if cell is Some((row, column)) {
-      @placement.parse_gerber_cell(text, row~, column~, source=path, reference?)
+      @placement.parse_gerber_cell(text, row~, column~, source=path)
     } else {
       @placement.parse_gerber(text, source=path)
     }
@@ -320,31 +319,35 @@ fn run() -> Int32 raise @placement.InputError {
     baseline_source=positional[0],
     delivery_source=positional[1],
   )
-  let top = if positional.length() >= 4 {
-    Some(load_layer(positional[3], args.cell, "top_gerber", fingerprints))
-  } else {
-    None
-  }
-  let bottom = if positional.length() >= 5 {
-    Some(
-      load_layer(
+  let result = if positional.length() == 5 {
+    @placement.audit_gerber_pair(
+      baseline,
+      delivery,
+      policy,
+      load_file(
+        positional[3],
+        @placement.INPUT_FILE_MAX_BYTES,
+        "top_gerber",
+        fingerprints,
+      ),
+      load_file(
         positional[4],
-        args.cell,
+        @placement.INPUT_FILE_MAX_BYTES,
         "bottom_gerber",
         fingerprints,
-        reference=top,
       ),
+      top_source=positional[3],
+      bottom_source=positional[4],
+      cell?=args.cell,
     )
   } else {
-    None
+    let top = if positional.length() == 4 {
+      Some(load_layer(positional[3], args.cell, "top_gerber", fingerprints))
+    } else {
+      None
+    }
+    @placement.audit_checked(baseline, delivery, policy, top_gerber=top)
   }
-  let result = @placement.audit_checked(
-    baseline,
-    delivery,
-    policy,
-    top_gerber=top,
-    bottom_gerber=bottom,
-  )
   if args.receipt is Some(path) && fingerprints is Some(inputs) {
     let build_sha256 = cli_sha256()
     if build_sha256.is_empty() {

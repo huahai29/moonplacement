@@ -111,9 +111,11 @@ def main():
                          footprint_prefix="antmicro-footprints:", excluded_refs=extra),
     }
 
-    blocked = run("03-native-dual-copper", CLI, [kicad_file, easyeda_file, configured, TOP, BOTTOM], exit_code=64)
-    assert blocked["status"] == "input_error" and "FreePoly0" in blocked["message"]
-    assert Path(blocked["field"]) == TOP
+    partial = run("03-native-dual-copper", CLI, [kicad_file, easyeda_file, configured, TOP, BOTTOM], exit_code=1)
+    assert partial["status"] == "different" and partial["pad_status"] == "incomplete"
+    assert partial["pad_layers"][0]["status"] == "failed" and "FreePoly0" in partial["pad_layers"][0]["message"]
+    assert partial["pad_layers"][1] == dict(side="bottom", status="complete", checked=44, targets=44)
+    assert component_pairs(partial["pad_differences"]) == [("J1", "pad_offset")]
     changed_kicad = write_table(OUTPUT / "kicad-c17-shifted.csv", kicad, shift_column="PosX")
     changed_easyeda = write_table(OUTPUT / "easyeda-c17-shifted.csv", easyeda, shift_column="Ref X")
     deleted_easyeda = write_table(OUTPUT / "easyeda-c17-missing.csv", {k: v for k, v in easyeda.items() if k != TARGET})
@@ -129,6 +131,23 @@ def main():
     shifted = run("10-c17-delivery-position", CLI, [kicad_file, changed_easyeda, configured], exit_code=1)
     assert component_pairs(shifted["differences"]) == [(TARGET, "position")]
     assert close(shifted["differences"][0]["distance_mm"], float(OFFSET))
+
+    combined = run("11-dual-copper-both-shift", CLI,
+                   [changed_kicad, changed_easyeda, configured, TOP, BOTTOM], exit_code=1)
+    assert combined["pad_layers"] == partial["pad_layers"]
+    assert combined["differences"] == []
+    assert component_pairs(combined["pad_differences"]) == [(TARGET, "pad_offset"), ("J1", "pad_offset")]
+    c17_shift = next(item for item in combined["pad_differences"] if item["ref"] == TARGET)
+    assert close(c17_shift["distance_mm"], float(OFFSET))
+    pristine_only = json.loads(configured.read_text(encoding="utf-8"))
+    pristine_only["placement_import"]["expected_refs"].remove("J1")
+    no_connector = OUTPUT / "import-policy-without-j1.json"
+    save_json(no_connector, pristine_only)
+    no_other_difference = run("12-dual-copper-without-j1", CLI,
+                              [kicad_file, easyeda_file, no_connector, TOP, BOTTOM], exit_code=2)
+    assert no_other_difference["pad_checked"] == 43
+    assert no_other_difference["differences"] == no_other_difference["pad_differences"] == []
+    assert no_other_difference["reason"] == "incomplete_gerber_layers"
 
     cases = [
         ("04-native-bottom", kicad_file, easyeda_file, [], False),
@@ -158,6 +177,8 @@ def main():
         raw_difference_counts=counts, extra_designators=extra, midpoint_deltas_mm=position_deltas,
         common_origin_max_delta={"ref": largest[1], "distance_mm": largest[0]},
         rejected_top_macro="FreePoly0", bottom_cases=results,
+        dual_layer_c17_offset_mm=c17_shift["distance_mm"],
+        dual_layer_without_other_differences=no_other_difference["status"],
     ))
     print("KiCad / EasyEDA Pro: 97 shared references, raw differences preserved, 44 bottom pads checked")
 

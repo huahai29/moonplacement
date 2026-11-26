@@ -4,7 +4,6 @@ fn read_layer(
   source : String,
   row : Int32,
   column : Int32,
-  reference? : @mp.GerberDocument,
 ) -> @mp.GerberDocument? raise @mp.InputError {
   if source.is_empty() {
     return None
@@ -13,7 +12,7 @@ fn read_layer(
     if row == 0 {
       @mp.parse_gerber(text, source~)
     } else {
-      @mp.parse_gerber_cell(text, source~, row~, column~, reference?)
+      @mp.parse_gerber_cell(text, source~, row~, column~)
     }
   } catch {
     @mp.InvalidGerber(field, message) => raise @mp.InvalidInput(field, message)
@@ -70,34 +69,31 @@ pub fn audit_files(
       baseline_source=baseline_file,
       delivery_source=delivery_file,
     )
-    let top = read_layer(top_gerber, top_file, row, column)
-    let bottom = read_layer(
-      bottom_gerber,
-      bottom_file,
-      row,
-      column,
-      reference?=top,
-    )
-    let result = @mp.audit_checked(
-      baseline,
-      delivery,
-      policy,
-      top_gerber=top,
-      bottom_gerber=bottom,
-    )
+    let has_top = !top_file.is_empty()
+    let has_bottom = !bottom_file.is_empty()
+    let result = if has_bottom {
+      let cell = if row == 0 { None } else { Some((row, column)) }
+      @mp.audit_gerber_pair(
+        baseline,
+        delivery,
+        policy,
+        top_gerber,
+        bottom_gerber,
+        top_source=top_file,
+        bottom_source=bottom_file,
+        cell?,
+      )
+    } else {
+      let top = read_layer(top_gerber, top_file, row, column)
+      @mp.audit_checked(baseline, delivery, policy, top_gerber=top)
+    }
     let output : Map[String, Json] = {
       "report": result.report,
       "html": Json(@mp.render_html(result.report, baseline)),
     }
     if !fingerprint_json.is_empty() {
       let inputs = decode_fingerprints(fingerprint_json)
-      let expected = if bottom is Some(_) {
-        5
-      } else if top is Some(_) {
-        4
-      } else {
-        3
-      }
+      let expected = if has_bottom { 5 } else if has_top { 4 } else { 3 }
       if inputs.length() == expected {
         output["receipt"] = @mp.audit_receipt(
           result,

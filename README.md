@@ -59,6 +59,8 @@ KiCad 与嘉立创 EDA 混用时，可在同一份配置里选择封装原点或
 | 2 | `indeterminate` | 对齐或铜层证据不足，需复查 |
 | 64 | `input_error` | 输入有误，或无法生成请求的报告 |
 
+同时提供双面铜层时，每层单独核验。一层解析失败时，报告保留另一层可确认的差异，并列出失败原因。[双层报告说明](docs/audit.md#铜层核对)
+
 ## 可复现案例
 
 [0.2.0 版本与验收](docs/release-0.2.0.md)汇总库安装、实导出、拼板复现和性能数据。在 MoonBit 项目中使用时，运行 `moon add huahai29/moonplacement@0.2.0`，参考[公共 API](docs/api.md)。

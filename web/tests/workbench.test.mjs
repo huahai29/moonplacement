@@ -88,6 +88,38 @@ test('the original KiCad and EasyEDA exports use the uploaded placement profile'
   expect(report.placement_import.delivery.footprint_prefix).toBe('antmicro-footprints:');
 });
 
+test('the workbench reports a failed top layer alongside independently verified bottom copper', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#baseline').setInputFiles(example('baseline.csv'));
+  await page.locator('#delivery').setInputFiles(example('delivery-ok.csv'));
+  await page.locator('#policy').setInputFiles(example('policy.json'));
+  await page.locator('#top').setInputFiles({
+    name: 'broken.gbr', mimeType: 'text/plain', buffer: Buffer.from('%FSLAX46Y46*%%MOINVALID*%M02*'),
+  });
+  const bottom = example('gerber/bottom-copper-matching.gbr');
+  await page.locator('#bottom').setInputFiles(bottom);
+  const run = page.getByRole('button', { name: '开始核对' });
+  await run.click();
+  await expect(page.getByRole('status')).toHaveText('无法确认');
+  await expect(page.locator('#result-detail')).toHaveText('顶铜核验失败');
+  const preview = page.frameLocator('#report-frame');
+  await expect(preview.getByText(/顶铜核验失败.*MO 单位/)).toBeVisible();
+  await expect(preview.getByText('底铜已核验全部位号（3 / 3）')).toBeVisible();
+
+  const shifted = (await readFile(bottom, 'utf8')).replace('X25000000', 'X25300000');
+  await page.locator('#bottom').setInputFiles({
+    name: 'shifted.gbr', mimeType: 'text/plain', buffer: Buffer.from(shifted),
+  });
+  await run.click();
+  await expect(page.getByRole('status')).toHaveText('发现差异');
+  await expect(page.locator('#result-detail')).toHaveText('C7 铜层偏差 0.30 mm · 顶铜核验失败');
+  const audit = JSON.parse(await download(page, '下载 JSON', 'moonplacement-report.json'));
+  expect(audit.pad_layers.map(({ status }) => status)).toEqual(['failed', 'complete']);
+  const receipt = JSON.parse(await download(page, '下载核验凭据', 'moonplacement-receipt.json'));
+  expect(receipt.report).toEqual(audit);
+  expect(receipt.inputs.map(({ role }) => role)).toEqual(['policy', 'baseline', 'delivery', 'top_gerber', 'bottom_gerber']);
+});
+
 test('an unavailable digest leaves the ordinary reports usable', async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(window.crypto, 'subtle', { value: undefined }));
   await page.goto('/');

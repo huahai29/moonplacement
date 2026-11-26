@@ -105,6 +105,13 @@ pub fn report_contract() -> Json {
     }),
   })
   let pad_warning = contract_object({ "side": side, "message": text })
+  let pad_layer_properties : Json = {
+    "side": side,
+    "status": contract_enum(["complete", "incomplete", "failed", "skipped"]),
+    "checked": integer,
+    "targets": integer,
+    "message": text,
+  }
   let table_import = contract_object({
     "x_column": text,
     "y_column": text,
@@ -133,6 +140,9 @@ pub fn report_contract() -> Json {
     "panel_cells": contract_items(panel_cell),
     "pad_evidence": contract_items(pad_evidence),
     "pad_warnings": contract_items(pad_warning),
+    "pad_layers": contract_items(
+      contract_object(pad_layer_properties, optional=["message"]),
+    ),
     "placement_import": contract_object({
       "scope": contract_enum(["all", "expected", "excluded"]),
       "baseline": table_import,
@@ -145,7 +155,9 @@ pub fn report_contract() -> Json {
       "pad_mm": number,
     }),
   }
-  let audit = contract_object(audit_properties, optional=["placement_import"])
+  let audit = contract_object(audit_properties, optional=[
+    "placement_import", "pad_layers",
+  ])
   let input_error = contract_object({
     "schema_version": schema_version,
     "status": { "const": Json("input_error") },

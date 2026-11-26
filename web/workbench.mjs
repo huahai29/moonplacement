@@ -132,8 +132,12 @@ function show({ report, html, receipt }) {
   }
   const offsets = report.pad_differences.filter(item => item.kind === 'pad_offset');
   const worst = offsets.reduce((best, item) => (!best || item.distance_mm > best.distance_mm ? item : best), null);
+  const failedLayers = (report.pad_layers ?? []).filter(layer => layer.status === 'failed')
+    .map(layer => layer.side === 'top' ? '顶铜核验失败' : '底铜核验失败');
+  const finding = worst ? `${worst.ref} 铜层偏差 ${worst.distance_mm.toFixed(2)} mm`
+    : (failedLayers.length ? '' : reasons[report.reason]);
   setState(report.status, resultLabels[report.status],
-    worst ? `${worst.ref} 铜层偏差 ${worst.distance_mm.toFixed(2)} mm` : reasons[report.reason]);
+    [finding, ...failedLayers].filter(Boolean).join(' · '));
   byId('table-count').textContent = String(report.differences.length);
   byId('pad-count').textContent = String(report.pad_differences.length);
   byId('checked-count').textContent = String(report.pad_checked);

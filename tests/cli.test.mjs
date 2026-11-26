@@ -184,8 +184,10 @@ test('panel cell selection rejects invalid indexes, missing grids and crossing g
     assert.match(run([baseline, delivery, policy, scratch, '--panel-cell', '1,1'], 64).message, message);
   }
   writeFileSync(scratch, original.replace('I40J40', 'I41J40'));
-  assert.match(run([baseline, delivery, policy, panel, scratch, '--panel-cell', '1,1'], 64).message,
-    /顶层与底层 SR 网格/);
+  const mixed = run([baseline, delivery, policy, panel, scratch, '--panel-cell', '1,1'], 2);
+  assert.deepEqual(mixed.panel_cells.map(({ side }) => side), ['top']);
+  assert.equal(mixed.pad_layers[0].status, 'complete');
+  assert.match(mixed.pad_layers[1].message, /顶层与底层 SR 网格/);
 });
 
 test('keeps unrelated flash evidence when a layer has arcs or clear objects', t => {
@@ -441,9 +443,10 @@ test('rejects declared bottom, inner and non-copper layers in the top input', t 
   }
 
   writeFileSync(copper, '%TF.FileFunction,Copper,L1,Top*%\n' + source);
-  const wrongBottom = run([baseline, delivery, policy, copper, copper], 64);
-  assert.equal(wrongBottom.field, copper);
-  assert.match(wrongBottom.message, /\.FileFunction 与底层铜输入不符/);
+  const wrongBottom = run([baseline, delivery, policy, copper, copper], 2);
+  assert.equal(wrongBottom.pad_layers[0].status, 'complete');
+  assert.equal(wrongBottom.pad_layers[1].status, 'failed');
+  assert.match(wrongBottom.pad_layers[1].message, /\.FileFunction 与底层铜输入不符/);
   const valid = run([baseline, delivery, policy, copper], 0);
   assert.deepEqual(valid.pad_warnings, []);
 
@@ -451,6 +454,38 @@ test('rejects declared bottom, inner and non-copper layers in the top input', t 
   assert.equal(legacy.pad_status, 'complete');
   assert.deepEqual(legacy.pad_warnings.map(item => item.side), ['top']);
   assert.match(legacy.pad_warnings[0].message, /缺少 \.FileFunction/);
+});
+
+test('a failed top layer retains bottom evidence, HTML and both input fingerprints', t => {
+  const work = mkdtempSync(join(tmpdir(), 'moonplacement-partial-copper-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const broken = join(work, 'broken.gbr');
+  const original = join(gerberExamples, 'bottom-copper-matching.gbr');
+  const shifted = join(work, 'shifted.gbr');
+  writeFileSync(broken, '%FSLAX46Y46*%%MOINVALID*%M02*');
+  writeFileSync(shifted, readFileSync(original, 'utf8').replace('X25000000', 'X25300000'));
+  const html = join(work, 'result.html');
+  const receipt = join(work, 'receipt.json');
+  const partial = run([baseline, delivery, policy, broken, original, '--html', html, '--receipt', receipt], 2);
+  assert.equal(partial.reason, 'incomplete_gerber_layers');
+  assert.equal(partial.pad_status, 'incomplete');
+  assert.equal(partial.pad_skipped, false);
+  assert.deepEqual(partial.pad_differences, []);
+  assert.deepEqual(partial.pad_layers[1], { side: 'bottom', status: 'complete', checked: 3, targets: 3 });
+  assert.match(partial.pad_layers[0].message, /MO 单位/);
+  assert.match(readFileSync(html, 'utf8'), /顶铜核验失败/);
+  assert.match(readFileSync(html, 'utf8'), /底铜已核验全部位号/);
+  const saved = JSON.parse(readFileSync(receipt, 'utf8'));
+  assert.deepEqual(saved.report, partial);
+  assert.deepEqual(saved.inputs.slice(-2).map(({ role }) => role), ['top_gerber', 'bottom_gerber']);
+  assert.equal(saved.inputs.at(-2).sha256, createHash('sha256').update(readFileSync(broken)).digest('hex'));
+
+  const different = run([baseline, delivery, policy, broken, shifted], 1);
+  assert.deepEqual(different.pad_differences.map(item => item.ref), ['C7']);
+  assert.ok(Math.abs(different.pad_differences[0].distance_mm - 0.30) < 0.0001);
+  const both = run([baseline, delivery, policy, broken, broken], 2);
+  assert.equal(both.pad_skipped, true);
+  assert.deepEqual(both.pad_layers.map(item => item.status), ['failed', 'failed']);
 });
 
 test('keeps input and aliases intact when they are selected as the report target', t => {

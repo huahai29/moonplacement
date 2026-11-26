@@ -18,6 +18,8 @@ cases = [
     [*tables, "examples/gerber/panel-sr.gbr"],
     ["examples/baseline.csv", "examples/delivery-errors.csv", "examples/policy.json"],
     [str(cross_eda / name) for name in ("kicad-placement.csv", "easyeda-pro-placement.csv", "import-policy.json")],
+    [str(cross_eda / name) for name in ("kicad-placement.csv", "easyeda-pro-placement.csv", "import-policy.json",
+                                      "usb-c-power-adapter-F_Cu.gbr", "usb-c-power-adapter-B_Cu.gbr")],
     [],
 ]
 for args in cases:

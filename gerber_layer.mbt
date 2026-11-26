@@ -57,23 +57,52 @@ fn check_layer_slots(
 ) -> Array[LayerIssue] {
   let issues : Array[LayerIssue] = []
   for (side, layer) in [(Top, top), (Bottom, bottom)] {
-    guard layer is Some(document) && document.file_function is Some(declaration) else {
-      continue
+    if layer is Some(document) &&
+      layer_slot_issue(side, document) is Some(issue) {
+      issues.push(issue)
     }
-    let fields = declaration.split(",").map(field => field.to_owned()).collect()
-    let matches = match (side, fields) {
-      (Top, [_, "Copper", _, "Top", ..])
-      | (Bottom, [_, "Copper", _, "Bot", ..]) => true
-      _ => false
-    }
-    if !matches {
+  }
+  issues
+}
+
+///|
+fn layer_slot_issue(side : Side, document : GerberDocument) -> LayerIssue? {
+  guard document.file_function is Some(declaration) else { return None }
+  let fields = declaration.split(",").map(field => field.to_owned()).collect()
+  match (side, fields) {
+    (Top, [_, "Copper", _, "Top", ..])
+    | (Bottom, [_, "Copper", _, "Bot", ..]) => None
+    _ => {
       let expected = if side == Top { "顶层铜" } else { "底层铜" }
-      issues.push({
+      Some({
         side,
         source: document.source,
         message: "Gerber .FileFunction 与\{expected}输入不符：\{declaration}",
       })
     }
   }
-  issues
+}
+
+///|
+fn parse_layer_slot(
+  input : String,
+  source : String,
+  side : Side,
+  cell : (Int32, Int32)?,
+  reference~ : GerberDocument? = None,
+) -> Result[GerberDocument, LayerIssue] {
+  let document = try {
+    match cell {
+      Some((row, column)) =>
+        parse_gerber_cell(input, row~, column~, source~, reference?)
+      None => parse_gerber(input, source~)
+    }
+  } catch {
+    InvalidGerber(field, message) =>
+      return Err({ side, source: field, message, })
+  }
+  match layer_slot_issue(side, document) {
+    Some(issue) => Err(issue)
+    None => Ok(document)
+  }
 }

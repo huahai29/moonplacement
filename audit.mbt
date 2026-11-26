@@ -206,6 +206,7 @@ fn audit_impl(
   top_gerber : GerberDocument?,
   bottom_gerber : GerberDocument?,
   layer_issues : Array[LayerIssue],
+  allow_partial~ : Bool = false,
 ) -> AuditResult {
   let scope = match policy.placement_import {
     Some(profile) => profile.scope
@@ -328,15 +329,34 @@ fn audit_impl(
   }
   let pad_differences : Array[Json] = []
   let pad_results : Array[Json] = []
-  let pad_warnings : Array[Json] = layer_issues.map(issue => {
-    "side": Json(side_name(issue.side)),
-    "message": Json(issue.message),
-  })
+  let pad_warnings : Array[Json] = if allow_partial {
+    []
+  } else {
+    layer_issues.map(issue => {
+      "side": Json(side_name(issue.side)),
+      "message": Json(issue.message),
+    })
+  }
   let pad_sides : Array[Json] = []
+  let pad_layers : Array[Json] = []
   let panel_cells : Array[Json] = []
   let mut pad_checked = 0
+  let mut layers_checked = 0
   for layer in [(Top, top_gerber), (Bottom, bottom_gerber)] {
-    guard layer is (side, Some(document)) else { continue }
+    let (side, parsed) = layer
+    if allow_partial &&
+      layer_issues.iter().find_first(issue => issue.side == side) is Some(issue) {
+      pad_sides.push(Json(side_name(side)))
+      pad_layers.push({
+        "side": Json(side_name(side)),
+        "status": Json("failed"),
+        "checked": Json(0),
+        "targets": Json(0),
+        "message": Json(issue.message),
+      })
+      continue
+    }
+    guard parsed is Some(document) else { continue }
     pad_sides.push(Json(side_name(side)))
     if document.file_function is None {
       pad_warnings.push({
@@ -363,7 +383,14 @@ fn audit_impl(
         "message": Json(warning),
       })
     }
-    guard layer_issues.is_empty() && frame is Some(chosen) else { continue }
+    guard (allow_partial || layer_issues.is_empty()) && frame is Some(chosen) else {
+      if allow_partial {
+        pad_layers.push(pad_layer_summary(side, "skipped", 0, 0))
+      }
+      continue
+    }
+    layers_checked += 1
+    let previous_checked = pad_checked
     let targets = side_targets(delivery, side, chosen, policy)
     let items = pad_evidence(
       document,
@@ -425,21 +452,29 @@ fn audit_impl(
         pad_differences.push(item)
       }
     }
+    if allow_partial {
+      let checked = pad_checked - previous_checked
+      let status = if checked == items.length() {
+        "complete"
+      } else {
+        "incomplete"
+      }
+      pad_layers.push(pad_layer_summary(side, status, checked, items.length()))
+    }
   }
-  let pad_skipped = !pad_sides.is_empty() &&
-    (frame is None || !layer_issues.is_empty())
+  let pad_skipped = !pad_sides.is_empty() && layers_checked == 0
   let pad_status = if pad_sides.is_empty() {
     "not_requested"
   } else if pad_skipped {
     "skipped"
-  } else if pad_checked < pad_results.length() {
+  } else if !layer_issues.is_empty() || pad_checked < pad_results.length() {
     "incomplete"
   } else {
     "complete"
   }
   let (verdict, reason) = if !import_matches {
     (Indeterminate, Json("invalid_placement_import"))
-  } else if !layer_issues.is_empty() {
+  } else if !allow_partial && !layer_issues.is_empty() {
     (Indeterminate, Json("invalid_gerber_layer"))
   } else if !anchor_issues.is_empty() {
     (Indeterminate, Json("invalid_anchors"))
@@ -451,6 +486,8 @@ fn audit_impl(
     (Indeterminate, Json("ambiguous_frame"))
   } else if !evidence.is_empty() || !pad_differences.is_empty() {
     (Different, Json(null))
+  } else if !layer_issues.is_empty() {
+    (Indeterminate, Json("incomplete_gerber_layers"))
   } else if pad_status == "incomplete" {
     (Indeterminate, Json("insufficient_pad_evidence"))
   } else if baseline.length() == pairs.length() {
@@ -497,5 +534,68 @@ fn audit_impl(
       "delivery": table_import_json(delivery_table, excluded_delivery),
     }
   }
+  if allow_partial {
+    report["pad_layers"] = Json(pad_layers)
+  }
   { verdict, report: Json::object(report), }
+}
+
+///|
+fn pad_layer_summary(
+  side : Side,
+  status : String,
+  checked : Int32,
+  targets : Int32,
+) -> Json {
+  {
+    "side": Json(side_name(side)),
+    "status": Json(status),
+    "checked": Json(checked),
+    "targets": Json(targets),
+  }
+}
+
+///|
+/// Audit two original Gerber inputs. A rejected layer leaves the other layer
+/// available for independent pad checks. Use the same optional panel cell for both.
+pub fn audit_gerber_pair(
+  baseline : PlacementTable,
+  delivery : PlacementTable,
+  policy : Policy,
+  top_input : String,
+  bottom_input : String,
+  top_source~ : String,
+  bottom_source~ : String,
+  cell? : (Int32, Int32),
+) -> AuditResult raise InputError {
+  if !placement_import_matches(policy, baseline, delivery) {
+    raise InvalidInput(
+      "placement_import", "请用同一份配置调用 read_placement_pair 读入两张表",
+    )
+  }
+  let issues : Array[LayerIssue] = []
+  let top = match parse_layer_slot(top_input, top_source, Top, cell) {
+    Ok(document) => Some(document)
+    Err(issue) => {
+      issues.push(issue)
+      None
+    }
+  }
+  let bottom = match
+    parse_layer_slot(bottom_input, bottom_source, Bottom, cell, reference=top) {
+    Ok(document) => Some(document)
+    Err(issue) => {
+      issues.push(issue)
+      None
+    }
+  }
+  audit_impl(
+    baseline,
+    delivery,
+    policy,
+    top,
+    bottom,
+    issues,
+    allow_partial=true,
+  )
 }

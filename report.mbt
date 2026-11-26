@@ -173,11 +173,18 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
   let differences = json_array(report, "differences")
   let pad_differences = json_array(report, "pad_differences")
   let pad_evidence = json_array(report, "pad_evidence")
+  let pad_layers = json_array(report, "pad_layers")
+  let failed_layer = pad_layers
+    .iter()
+    .any(layer => json_string(layer, "status") == "failed")
   let pad_state = match json_string(report, "pad_status") {
     "complete" => "已取得全部位号证据"
+    "incomplete" if failed_layer => "部分铜层未完成核验"
     "incomplete" => "部分器件缺少位号证据"
     "skipped" if reason == "invalid_gerber_layer" =>
       "Gerber 板面或用途不符，未核验"
+    "skipped" if reason == "incomplete_gerber_layers" =>
+      "铜层输入有误，未核验"
     "skipped" => "未能对齐，未核验"
     _ => "未提供铜层"
   }
@@ -296,6 +303,31 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
   html.write_string("<h2>器件差异</h2>")
   html.write_string(differences_table(differences))
   html.write_string("<h2>铜层核对</h2>")
+  if !pad_layers.is_empty() {
+    html.write_string("<ul>")
+    for layer in pad_layers {
+      let side = if json_string(layer, "side") == "top" {
+        "顶铜"
+      } else {
+        "底铜"
+      }
+      let text = match json_string(layer, "status") {
+        "failed" =>
+          "核验失败 · " + escape_html(json_string(layer, "message"))
+        "skipped" => "无法完成配准，未核验"
+        "complete" => "已核验全部位号"
+        _ => "部分位号缺少证据"
+      }
+      let count = if json_string(layer, "status") == "complete" ||
+        json_string(layer, "status") == "incomplete" {
+        "（\{json_int(layer, "checked")} / \{json_int(layer, "targets")}）"
+      } else {
+        ""
+      }
+      html.write_string("<li>\{side}\{text}\{count}</li>")
+    }
+    html.write_string("</ul>")
+  }
   for cell in json_array(report, "panel_cells") {
     let side = if json_string(cell, "side") == "top" {
       "顶面"

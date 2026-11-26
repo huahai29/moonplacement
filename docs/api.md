@@ -23,6 +23,7 @@ pkgtype(kind: "executable")
 | 只核对某个拼板单元 | 用 `parse_gerber_cell` 直接解析指定单元，或对已有整板文档调用 `select_panel_cell` |
 | 比较坐标表并核验所传板面 | `audit(baseline, delivery, policy, top_gerber=Some(top), bottom_gerber=Some(bottom))`。可省略任一未提供的铜层 |
 | 显式处理板面或铜层用途冲突 | `audit_checked` 调用方式与 `audit` 相同，遇到明确冲突时抛出带源文件名的 `InputError`。`audit` 会返回 `Indeterminate` 和 `invalid_gerber_layer` |
+| 分别核对两份 Gerber 原文 | 主分支提供 `audit_gerber_pair(baseline, delivery, policy, top_text, bottom_text, top_source=..., bottom_source=..., cell=...)`。在 `pad_layers` 读取每层状态和失败原因。未选拼板单元时可省略 `cell` |
 | 保存证据 | `AuditResult.report` 是 JSON v3；`render_html(result.report, baseline)` 返回可离线打开的 HTML 字符串 |
 | 保存输入指纹 | `audit_receipt(result, inputs, host=..., build_sha256=...)` 把宿主计算的哈希与原报告写入[核验凭据](receipt.md) |
 | 自己做点集配准 | 用 `Point::new(x, y)` 创建毫米坐标，再调用 `register(source, target, model, threshold_mm)`。模型为 `Rigid`、`Similarity` 或 `Affine`，返回从源点到目标点的变换及逐点残差 |
