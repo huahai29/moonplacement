@@ -76,6 +76,22 @@ fn clearance_description(evidence : Json) -> String {
 }
 
 ///|
+fn pad_origin_description(evidence : Json, origin : Json) -> String {
+  let raw = @math.round(json_double(origin, "raw_distance_mm") * 1.0e6) / 1.0e6
+  let source = escape_html(json_string(origin, "source"))
+  match json_string(origin, "status") {
+    "corrected" => {
+      let corrected = @math.round(json_double(evidence, "distance_mm") * 1.0e6) /
+        1.0e6
+      "原点偏移已校正。原始距离 \{raw} mm，校正后 \{corrected} mm。依据：\{source}"
+    }
+    "pose_mismatch" =>
+      "需复查：板面或基准角度与校正规则不符，原始距离 \{raw} mm。依据：\{source}"
+    _ => "需复查：原始距离 \{raw} mm。原因：\{source}"
+  }
+}
+
+///|
 fn marker_color(
   reference : String,
   problems : Map[String, Bool],
@@ -342,12 +358,14 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
     "<p>\{pad_state}：按位号核验 \{json_int(report, "pad_checked")} / \{pad_evidence.length()}。</p>",
   )
   html.write_string(differences_table(pad_differences))
-  let mut listed_incomplete = false
+  let mut listed_evidence = false
   for item in pad_evidence {
     if json_get(item, "evidence") is Some(evidence) {
-      let description = match json_string(evidence, "status") {
-        "copper_only" => "附近有铜，位号归属未知"
-        "unverified" =>
+      let description = match
+        (json_get(evidence, "origin"), json_string(evidence, "status")) {
+        (Some(origin), _) => pad_origin_description(evidence, origin)
+        (_, "copper_only") => "附近有铜，位号归属未知"
+        (_, "unverified") =>
           match json_string(evidence, "reason") {
             "repeated_reference" =>
               "拼板中位号重复，请按单元拆分后核验"
@@ -356,9 +374,9 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
           }
         _ => continue
       }
-      if !listed_incomplete {
+      if !listed_evidence {
         html.write_string("<ul>")
-        listed_incomplete = true
+        listed_evidence = true
       }
       let reference = escape_html(json_string(item, "ref"))
       let side = if json_string(item, "side") == "top" {
@@ -369,7 +387,7 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
       html.write_string("<li>\{reference}（\{side}）：\{description}</li>")
     }
   }
-  if listed_incomplete {
+  if listed_evidence {
     html.write_string("</ul>")
   }
   html.write_string("<h2>原始 JSON</h2>")

@@ -43,6 +43,7 @@ pub struct Policy {
   priv anchor_mm : Double
   priv pad_mm : Double
   priv placement_import : PlacementImport?
+  priv pad_origins : PadOrigins
 }
 
 ///|
@@ -219,5 +220,6 @@ pub fn read_policy(input : String) -> Policy raise InputError {
     anchor_mm: tolerance(raw.anchor_tolerance_mm, 100.0, "anchor_tolerance_mm"),
     pad_mm,
     placement_import: read_placement_import(document, anchors),
+    pad_origins: read_pad_origins(document),
   }
 }

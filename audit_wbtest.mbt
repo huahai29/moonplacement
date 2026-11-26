@@ -43,6 +43,7 @@ fn fixture_table(rows : String) -> PlacementTable raise InputError {
 fn matching_policy(
   anchors~ : Array[String] = ["R1", "R2", "R3"],
   placement_import~ : Json? = None,
+  pad_origins~ : Json? = None,
 ) -> Policy raise InputError {
   let convention : Json = {
     "unit": Json("mm"),
@@ -62,6 +63,9 @@ fn matching_policy(
   }
   if placement_import is Some(profile) {
     policy["placement_import"] = profile
+  }
+  if pad_origins is Some(rules) {
+    policy["pad_origins"] = rules
   }
   read_policy(Json::object(policy).stringify())
 }
@@ -338,4 +342,120 @@ test "configuration rejects duplicate anchors and unsupported rotation" {
   assert_true(duplicates is Err(InvalidInput("anchors", _)))
   let rotation = Ok(fixture_policy(rotation="45")) catch { error => Err(error) }
   assert_true(rotation is Err(InvalidInput("rotation", _)))
+}
+
+///|
+test "pad origin rules reject ambiguous and invalid configuration" {
+  for
+    rules in [
+      (
+        $|{}
+      ),
+      (
+        $|[{"ref":"J1","footprint":"usb","mode":"review","source":"drawing"}]
+      ),
+      (
+        $|[{"ref":"J1","mode":"review","source":"drawing"},{"ref":" j1 ","mode":"review","source":"drawing"}]
+      ),
+      (
+        $|[{"ref":"J1","mode":"review","source":"  "}]
+      ),
+      (
+        $|[{"ref":"J1","mode":"review","source":"drawing","dx_mm":1}]
+      ),
+      (
+        $|[{"ref":"J1","mode":"offset","source":"drawing","side":"bottom","angle_deg":0,"dx_mm":1}]
+      ),
+      (
+        $|[{"ref":"J1","mode":"offset","source":"drawing","side":"bottom","angle_deg":0,"dx_mm":1001,"dy_mm":0}]
+      ),
+      (
+        $|[{"ref":"J1","mode":"offset","source":"drawing","side":"back","angle_deg":0,"dx_mm":1,"dy_mm":0}]
+      ),
+      (
+        $|[{"ref":"J1","mode":"unknown","source":"drawing"}]
+      ),
+    ] {
+    let policy = Ok(matching_policy(pad_origins=Some(@json.parse(rules)))) catch {
+      error => Err(error)
+    }
+    assert_true(policy is Err(InvalidInput(_, _)), msg=rules)
+  }
+}
+
+///|
+test "reference rule overrides a footprint rule and mismatched pose requires review" {
+  let evidence = ByReference(2, { x: -1.0, y: 0.0, }, 1.0)
+  let policy = matching_policy(
+    pad_origins=Some(
+      @json.parse(
+        (
+          #|[
+          #|  {"footprint":"USB","mode":"offset","side":"bottom","angle_deg":90,"dx_mm":1,"dy_mm":0,"source":"Drawing"},
+          #|  {"ref":"j2","mode":"review","source":"Check J2"}
+          #|]
+        ),
+      ),
+    ),
+  )
+  let part : Placement = {
+    refdes: "J1",
+    xy: { x: 0.0, y: 0.0, },
+    angle_deg: -270.0,
+    side: Bottom,
+    value: "",
+    footprint: " usb ",
+  }
+  let (corrected, origin) = apply_pad_origin(
+    evidence,
+    "J1",
+    Bottom,
+    Some(part),
+    policy,
+  )
+  assert_true(corrected is ByReference(2, _, 0.0))
+  assert_true(
+    origin
+    is Some(
+      { "status": String("corrected"), "matched_by": String("footprint"), .. }
+    ),
+  )
+  let (overridden, origin) = apply_pad_origin(
+    evidence,
+    "J2",
+    Bottom,
+    Some(part),
+    policy,
+  )
+  assert_true(overridden is Unverified)
+  assert_true(
+    origin
+    is Some({ "status": String("review"), "matched_by": String("ref"), .. }),
+  )
+  let (wrong_pose, origin) = apply_pad_origin(
+    evidence,
+    "J1",
+    Bottom,
+    Some({ ..part, angle_deg: 0.0, }),
+    policy,
+  )
+  assert_true(wrong_pose is Unverified)
+  assert_true(origin is Some({ "status": String("pose_mismatch"), .. }))
+  let (wrong_side, origin) = apply_pad_origin(
+    evidence,
+    "J1",
+    Top,
+    Some(part),
+    policy,
+  )
+  assert_true(wrong_side is Unverified)
+  assert_true(origin is Some({ "status": String("pose_mismatch"), .. }))
+  let (unattributed, origin) = apply_pad_origin(
+    CopperOnly,
+    "J1",
+    Bottom,
+    Some(part),
+    policy,
+  )
+  assert_true(unattributed is CopperOnly && origin is None)
 }

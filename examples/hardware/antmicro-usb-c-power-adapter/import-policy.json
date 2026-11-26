@@ -23,6 +23,17 @@
   "position_tolerance_mm": 0.05,
   "angle_tolerance_deg": 1,
   "pad_tolerance_mm": 0.1,
+  "pad_origins": [
+    {
+      "ref": "J1",
+      "mode": "offset",
+      "side": "bottom",
+      "angle_deg": 0,
+      "dx_mm": -0.000715659072,
+      "dy_mm": -2.266301343011,
+      "source": "Antmicro 固定版本 KiCad PCB 的 J1 焊盘几何，见 j1-design-pads.json"
+    }
+  ],
   "placement_import": {
     "delivery": {
       "coordinates": "ref",

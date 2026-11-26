@@ -34,12 +34,12 @@ def read_rows(path, key):
     return by_ref
 
 
-def write_table(path, rows, *, shift_column=None):
+def write_table(path, rows, *, shift_column=None, shift_ref=TARGET):
     with path.open("w", encoding="utf-8", newline="") as stream:
         writer = csv.DictWriter(stream, list(next(iter(rows.values()))), lineterminator="\n")
         writer.writeheader()
         for ref, row in rows.items():
-            if shift_column and ref == TARGET:
+            if shift_column and ref == shift_ref:
                 row = {**row, shift_column: str(Decimal(row[shift_column]) + OFFSET)}
             writer.writerow(row)
     return path
@@ -60,6 +60,31 @@ def component_pairs(items):
 
 def close(actual, expected):
     return math.isclose(actual, expected, abs_tol=1e-9, rel_tol=0)
+
+
+def design_origin_offset():
+    # Use KiCad design geometry, not Gerber or placement coordinates, as the oracle.
+    fixture = json.loads((FIXTURE / "j1-design-pads.json").read_text(encoding="utf-8"), parse_float=Decimal)
+    pi = Decimal("3.141592653589793238462643383279")
+    x = y = area_sum = 0
+    for group in fixture["groups"]:
+        width, height = map(Decimal, group["size_mm"])
+        if group["shape"] == "roundrect":
+            radius = min(width, height) * group["radius_ratio"]
+            area = width * height - (4 - pi) * radius**2
+        else:
+            assert group["shape"] == "oval"
+            area = abs(width - height) * min(width, height) + pi * (min(width, height) / 2)**2
+        for cx, cy in group["centers_mm"]:
+            x += cx * area
+            y -= cy * area  # PCB Y points down, while published copper Y points up.
+            area_sum += area
+    assert sum(len(group["centers_mm"]) for group in fixture["groups"]) == 20
+    return float(x / area_sum), float(y / area_sum)
+
+
+def pad_item(report, ref):
+    return next(item["evidence"] for item in report["pad_evidence"] if item["ref"] == ref)
 
 
 def main():
@@ -96,8 +121,12 @@ def main():
                               float(row["PosY"]) - float(easyeda[ref]["Ref Y"])), ref)
                   for ref, row in kicad.items())
     assert largest[1] == "R25" and close(largest[0], 0.000136)
-    configured = FIXTURE / "import-policy.json"
-    assert set(json.loads(configured.read_text(encoding="utf-8"))["placement_import"]["expected_refs"]) == kicad.keys()
+    corrected = FIXTURE / "import-policy.json"
+    corrected_policy = json.loads(corrected.read_text(encoding="utf-8"))
+    configured = OUTPUT / "import-policy-without-pad-origin.json"
+    original_policy = {key: value for key, value in corrected_policy.items() if key != "pad_origins"}
+    save_json(configured, original_policy)
+    assert set(original_policy["placement_import"]["expected_refs"]) == kicad.keys()
     matched = run("02-common-origins", CLI, [kicad_file, easyeda_file, configured], exit_code=0)
     assert matched["status"] == "pass" and matched["differences"] == []
     assert matched["frame"]["max_anchor_error_mm"] < 1e-9
@@ -139,13 +168,9 @@ def main():
     assert component_pairs(combined["pad_differences"]) == [(TARGET, "pad_offset"), ("J1", "pad_offset")]
     c17_shift = next(item for item in combined["pad_differences"] if item["ref"] == TARGET)
     assert close(c17_shift["distance_mm"], float(OFFSET))
-    pristine_only = json.loads(configured.read_text(encoding="utf-8"))
-    pristine_only["placement_import"]["expected_refs"].remove("J1")
-    no_connector = OUTPUT / "import-policy-without-j1.json"
-    save_json(no_connector, pristine_only)
-    no_other_difference = run("12-dual-copper-without-j1", CLI,
-                              [kicad_file, easyeda_file, no_connector, TOP, BOTTOM], exit_code=2)
-    assert no_other_difference["pad_checked"] == 43
+    no_other_difference = run("12-dual-copper-corrected-origin", CLI,
+                              [kicad_file, easyeda_file, corrected, TOP, BOTTOM], exit_code=2)
+    assert no_other_difference["pad_layers"] == partial["pad_layers"]
     assert no_other_difference["differences"] == no_other_difference["pad_differences"] == []
     assert no_other_difference["reason"] == "incomplete_gerber_layers"
 
@@ -172,6 +197,50 @@ def main():
         results[name] = dict(table_differences=len(table_differences), c17_distance_mm=c17["distance_mm"],
                              bottom_checked=result["pad_checked"], j1_distance_mm=connector["distance_mm"])
 
+    dx, dy = design_origin_offset()
+    correct_j1 = corrected_policy["pad_origins"][0]
+    assert abs(correct_j1["dx_mm"] - dx) < 1e-12 and abs(correct_j1["dy_mm"] - dy) < 1e-12
+    shifted_j1_kicad = write_table(OUTPUT / "kicad-j1-shifted.csv", kicad,
+                                    shift_column="PosX", shift_ref="J1")
+    shifted_j1_easyeda = write_table(OUTPUT / "easyeda-j1-shifted.csv", easyeda,
+                                      shift_column="Ref X", shift_ref="J1")
+    corrected_runs = {}
+    for name, baseline, delivery, target in [
+        ("13-corrected-normal-j1", kicad_file, easyeda_file, None),
+        ("14-corrected-shifted-j1", shifted_j1_kicad, shifted_j1_easyeda, "J1"),
+        ("15-corrected-shifted-c17", changed_kicad, changed_easyeda, TARGET),
+    ]:
+        report = run(name, BOTTOM_FIXTURE, [baseline, delivery, corrected, BOTTOM], exit_code=0)
+        assert report["status"] == ("different" if target else "pass")
+        assert report["differences"] == [] and report["pad_checked"] == 44
+        assert component_pairs(report["pad_differences"]) == ([(target, "pad_offset")] if target else [])
+        j1 = pad_item(report, "J1")
+        assert j1["origin"]["status"] == "corrected" and j1["origin"]["matched_by"] == "ref"
+        assert j1["pad_count"] == 20 and j1["within_tolerance"] == (target != "J1")
+        assert close(j1["origin"]["raw_distance_mm"], math.hypot(-dx + (0.30 if target == "J1" else 0), dy))
+        assert close(j1["distance_mm"], 0.30 if target == "J1" else 0.0)
+        if target:
+            assert close(report["pad_differences"][0]["distance_mm"], float(OFFSET))
+        corrected_runs[name] = {"status": report["status"], "j1": j1,
+                                "pad_differences": report["pad_differences"]}
+
+    # An explicit review is incomplete, and never suppresses a confirmed difference elsewhere.
+    manual_review = OUTPUT / "import-policy-review-j1.json"
+    save_json(manual_review, {**original_policy, "pad_origins": [
+        {"footprint": kicad["J1"]["Package"], "mode": "review", "source": "确认连接器原点来源"},
+    ]})
+    review = run("16-review-j1", BOTTOM_FIXTURE, [kicad_file, easyeda_file, manual_review, BOTTOM], exit_code=0)
+    assert review["status"] == "indeterminate" and review["pad_checked"] == 43
+    assert review["reason"] == "insufficient_pad_evidence" and review["pad_differences"] == []
+    j1 = pad_item(review, "J1")
+    assert j1["status"] == "unverified" and j1["reason"] == "pad_origin_review"
+    assert j1["origin"]["status"] == "review" and j1["origin"]["matched_by"] == "footprint"
+    assert close(j1["origin"]["raw_distance_mm"], math.hypot(dx, dy))
+    review_shifted = run("17-review-j1-shifted-c17", BOTTOM_FIXTURE,
+                         [changed_kicad, changed_easyeda, manual_review, BOTTOM], exit_code=0)
+    assert review_shifted["status"] == "different"
+    assert component_pairs(review_shifted["pad_differences"]) == [(TARGET, "pad_offset")]
+
     save_json(OUTPUT / "summary.json", dict(
         raw_table_counts={"kicad": len(kicad), "easyeda_pro": len(easyeda)},
         raw_difference_counts=counts, extra_designators=extra, midpoint_deltas_mm=position_deltas,
@@ -179,8 +248,9 @@ def main():
         rejected_top_macro="FreePoly0", bottom_cases=results,
         dual_layer_c17_offset_mm=c17_shift["distance_mm"],
         dual_layer_without_other_differences=no_other_difference["status"],
+        j1_design_offset_mm={"x": dx, "y": dy}, corrected_bottom_cases=corrected_runs,
     ))
-    print("KiCad / EasyEDA Pro: 97 shared references, raw differences preserved, 44 bottom pads checked")
+    print("KiCad / EasyEDA Pro: 97 shared references, 44 bottom targets, J1 corrected; J1 and C17 shifts detected")
 
 
 if __name__ == "__main__":

@@ -50,7 +50,7 @@ node _build/js/debug/build/cmd/main/main.js examples/baseline.csv examples/deliv
 
 KiCad 与嘉立创 EDA 混用时，可在同一份配置里选择封装原点或中心、封装库前缀和本批次应贴位号。CLI 和工作台都能直接读取原始 CSV。[配置示例与实测](docs/cross-eda.md)
 
-报告先看 `status`，再看 `differences`（两表差异）和 `pad_evidence`（铜层证据）。无法对齐时，查看 `frame.anchor_residuals` 或 `rejected_frames` 排查基准。焊盘归属来自 Gerber X2 位号；缺少归属时，附近有铜也不足以确认器件。非对称封装的贴装原点可能和铜形中心不同。
+报告先看 `status`，再看 `differences`（两表差异）和 `pad_evidence`（铜层证据）。无法对齐时，查看 `frame.anchor_residuals` 或 `rejected_frames` 排查基准。焊盘归属来自 Gerber X2 位号。贴装原点与铜形中心不重合时，可用设计数据配置校正，或标记为需复查。[原点校正规则](docs/audit.md#封装原点校正)
 
 | 退出码 | 状态 | 含义 |
 | --- | --- | --- |

@@ -97,12 +97,36 @@ pub fn report_contract() -> Json {
     "offset_x_mm": number,
     "offset_y_mm": number,
   })
+  let pad_origin = contract_object(
+    {
+      "status": contract_enum(["corrected", "review", "pose_mismatch"]),
+      "matched_by": contract_enum(["ref", "footprint"]),
+      "source": text,
+      "raw_distance_mm": number,
+      "raw_delta_x_mm": number,
+      "raw_delta_y_mm": number,
+      "applied_dx_mm": number,
+      "applied_dy_mm": number,
+    },
+    optional=["applied_dx_mm", "applied_dy_mm"],
+  )
+  let pad_evidence_details = contract_object(
+    {
+      "status": contract_enum(["by_reference", "copper_only", "unverified"]),
+      "reason": text,
+      "pad_count": integer,
+      "distance_mm": number,
+      "within_tolerance": boolean,
+      "origin": pad_origin,
+    },
+    optional=[
+      "reason", "pad_count", "distance_mm", "within_tolerance", "origin",
+    ],
+  )
   let pad_evidence = contract_object({
     "ref": text,
     "side": side,
-    "evidence": contract_object({
-      "status": contract_enum(["by_reference", "copper_only", "unverified"]),
-    }),
+    "evidence": pad_evidence_details,
   })
   let pad_warning = contract_object({ "side": side, "message": text })
   let pad_layer_properties : Json = {

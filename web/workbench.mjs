@@ -23,7 +23,7 @@ const reasons = {
   degenerate_baseline_anchors: '请在设计表中选用分布更开的基准器件。',
   no_matching_frame: '没有候选配准满足基准容差。',
   ambiguous_frame: '多个配准候选满足容差。请检查基准件和方向约定。',
-  insufficient_pad_evidence: '有器件缺少可归属到位号的铜层证据。',
+  insufficient_pad_evidence: '有器件的铜层证据需复查，详情见报告。',
   no_independent_components: '表中的器件都参加了配准，缺少独立核对点。',
 };
 

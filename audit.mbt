@@ -400,7 +400,14 @@ fn audit_impl(
     )
     for i in 0..<items.length() {
       let refdes = targets.refs[i]
-      let details : Json = match items[i] {
+      let (item, origin) = apply_pad_origin(
+        items[i],
+        refdes,
+        side,
+        baseline.get(refdes),
+        policy,
+      )
+      let details : Map[String, Json] = match item {
         ByReference(pad_count, _, distance) => {
           pad_checked += 1
           {
@@ -443,12 +450,18 @@ fn audit_impl(
         RepeatedReference =>
           { "status": Json("unverified"), "reason": Json("repeated_reference") }
       }
+      if origin is Some(origin) {
+        details["origin"] = origin
+        if item is Unverified {
+          details["reason"] = Json("pad_origin_review")
+        }
+      }
       pad_results.push({
         "ref": Json(refdes),
         "side": Json(side_name(side)),
-        "evidence": details,
+        "evidence": Json::object(details),
       })
-      if pad_finding(refdes, items[i], policy.pad_mm) is Some(item) {
+      if pad_finding(refdes, item, policy.pad_mm) is Some(item) {
         pad_differences.push(item)
       }
     }

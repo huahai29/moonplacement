@@ -86,6 +86,29 @@ test('the original KiCad and EasyEDA exports use the uploaded placement profile'
   expect(report.delivery_count).toBe(97);
   expect(report.placement_import.delivery.excluded_refs).toHaveLength(27);
   expect(report.placement_import.delivery.footprint_prefix).toBe('antmicro-footprints:');
+
+  await page.locator('#top').setInputFiles(fixture('usb-c-power-adapter-F_Cu.gbr'));
+  await page.locator('#bottom').setInputFiles(fixture('usb-c-power-adapter-B_Cu.gbr'));
+  await page.getByRole('button', { name: '开始核对' }).click();
+  const corrected = preview.getByRole('listitem').filter({ hasText: 'J1（底面）' });
+  await expect(corrected).toContainText('原点偏移已校正');
+  await expect(corrected).toContainText('原始距离 2.2663');
+  await expect(corrected).toContainText('校正后');
+  await expect(page.getByRole('status')).toHaveText('无法确认');
+  await expect(page.locator('#result-detail')).toHaveText('顶铜核验失败');
+  const copper = JSON.parse(await download(page, '下载 JSON', 'moonplacement-report.json'));
+  expect(copper.pad_checked).toBe(44);
+  expect(copper.pad_differences).toEqual([]);
+  expect(copper.pad_evidence.find(({ ref }) => ref === 'J1').evidence.distance_mm).toBeLessThan(1e-9);
+
+  const policy = JSON.parse(await readFile(fixture('import-policy.json'), 'utf8'));
+  policy.pad_origins = [{ ref: 'J1', mode: 'review', source: '复查 <J1>' }];
+  await page.locator('#policy').setInputFiles({
+    name: 'review.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(policy)),
+  });
+  await page.getByRole('button', { name: '开始核对' }).click();
+  await expect(preview.getByRole('listitem').filter({ hasText: 'J1（底面）' })).toContainText('原因：复查 <J1>');
+  await expect(page.getByRole('status')).toHaveText('无法确认');
 });
 
 test('the workbench reports a failed top layer alongside independently verified bottom copper', async ({ page }) => {

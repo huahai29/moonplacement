@@ -15,7 +15,8 @@
 | `anchor_tolerance_mm` | 每个基准点允许的最大二维残差，大于 0 且不超过 100 mm |
 | `position_tolerance_mm` | 对齐后器件允许的二维距离，大于 0 且不超过 100 mm |
 | `angle_tolerance_deg` | 器件允许的最小圆周角差，大于 0 且不超过 180° |
-| `pad_tolerance_mm` | 可选，铜层质心与送厂坐标之间允许的距离，缺省 0.1 mm |
+| `pad_tolerance_mm` | 可选，铜层质心与送厂坐标推算出的期望质心之间允许的距离，缺省 0.1 mm |
+| `pad_origins` | 可选，按位号或封装设置质心偏移或人工复查。见[封装原点校正](#封装原点校正) |
 
 底面 X 与角度约定分别配置。例如 KiCad 的底面 X 取反选项改动 X 坐标，角度仍按原角度字段导出。输入必须使用可换算的器件中心和角度零位。合并表应使用同一面板、同一版次及一致的 DNP 筛选规则。参见 [KiCad 位置文件导出](https://docs.kicad.org/9.0/en/cli/cli.html#pcb-export-position-file)和[嘉立创贴片文件说明](https://jlcpcb.com/help/article/pick-place-file-for-pcb-assembly)。
 
@@ -68,11 +69,29 @@ CLI 和网页同时收到两份有效 UTF-8 的铜层原文时，每层独立记
 
 - 坐标支持 `FS` 声明的绝对坐标及前零、尾零省略。`MO` 必须声明毫米或英寸，省略的 X/Y 轴沿用当前位置，单独的 `D03` 在当前位置放置焊盘。增量坐标、两轴位宽不一致和无效坐标会使该层失败。见 [Gerber 格式规范](https://www.ucamco.com/en/gerber)。
 - 标准 `C`/`R`/`O`/`P` 支持同心圆孔。光圈宏支持单圆、中心线矩形、向量线、多边形轮廓、正多边形、热焊盘以及 KiCad 圆角矩形组合。部分实心外形可开多个互不接触的圆孔。孔内区域不提供铜证据，也不清除孔下已有的铜。焊盘归属优先用 X2 `TO.P` 的位号，其次用 `TO.C`。`TD` 支持按属性名清除。其他命令与范围见 [Gerber 2024.05 验收](gerber-acceptance.md)。
-- 有位号归属时，计算该器件暗色闪光焊盘的面积加权中心，与送厂坐标比较。差值超过 `pad_tolerance_mm` 记为 `pad_offset`。该中心不一定等于不对称封装的贴装原点；用此结果判断贴装偏位前应确认原点定义。
+- 有位号归属时，计算该器件暗色闪光焊盘的面积加权中心，与送厂坐标推算出的期望质心比较。距离超过 `pad_tolerance_mm` 记为 `pad_offset`。
 - 无归属时，只提供「附近有铜」或「未核验」线索。附近铜可由受支持的闪光、圆弧描线和区域提供。后绘制的清除圆弧按实际弧段及线宽筛查，焊盘用外接圆估计，可能相交的位号标为未核验。含弧区域按轮廓判断。一个铜区内的独立轮廓取并集，折返路径围出的孔保持透明。圆弧离散误差带内保守处理。超出当前范围的宏会返回输入错误。块光圈 `AB` 和拼板 `SR` 可展开几何。块内已标注的焊盘保留位号；单闪光块可以使用调用处的位号。多对象块不从调用处猜测每个焊盘的归属。若同一位号随拼板被复制，可使用 `--panel-cell` 或拆分文件后再核验。
 - 两份表都带 `Val` / `Package` 列时，还会逐位号比较型号与封装，差异记为 `value` 与 `package`。
 
 有唯一变换时，只要确认了一项差异，结论即为 `different`。若无差异但所请求的铜层缺少位号证据，结论为 `indeterminate`。没有要求铜层核验时，继续沿用两表判定。
+
+### 封装原点校正
+
+不对称封装的贴装原点可能离铜箔质心较远。在配置中加入 `pad_origins`，把设计中已知的偏移加到配准后的送厂原点，再与铜层质心比较。未配置的器件仍直接比较送厂原点与铜箔质心。
+
+```json
+{
+  "pad_origins": [
+    {"ref": "J1", "mode": "offset", "side": "bottom", "angle_deg": 0,
+     "dx_mm": -0.000715659072, "dy_mm": -2.266301343011, "source": "固定版 KiCad 设计中的 J1 焊盘几何"},
+    {"footprint": "Connector_Custom", "mode": "review", "source": "请确认该封装的原点定义"}
+  ]
+}
+```
+
+- 每条规则只填 `ref` 或 `footprint` 之一。目标在基准表匹配，忽略大小写和首尾空白。匹配封装名时使用导入并去掉已配置库前缀后的名字。位号规则优先于封装规则。
+- `offset` 的 `dx_mm`、`dy_mm` 是从贴装原点指向铜层质心的向量，使用基准板的 X/Y 轴与毫米单位，各轴范围 ±1000 mm。规则要求板面相同且基准规范化后的角度相差不超过 0.000001°。配置角度可填 ±360°，`360°` 与 `0°` 等价。旋转或翻面的同封装若需要校正，可按位号填写独立的向量。
+- `review` 及姿态不符的校正规则会保留原始距离并将该位号列为需复查。条目不计入 `pad_checked`，其他器件仍照常核验。两种规则均必填 `source`，分别填写设计依据或复查原因。校正只用于已有 X2 归属且可用的铜证据；创建规则时应从可信的设计或封装几何取得偏移。[J1 实板推导与复现](cross-eda.md#用原始底铜核对-j1-与-c17)
 
 ## 拼板单元
 
@@ -93,10 +112,11 @@ MoonBit 库可直接调用 `parse_gerber_cell(text, row=10, column=10, source="t
 - `candidate_frames` 列出通过基准检查的候选。`rejected_frames` 用 `anchor_tolerance_exceeded` 标记超出容差的候选，并附该候选的 `frame`。`degenerate_delivery_anchors` 表示该底面约定下的基准分布退化，此时只给出约定和原因。
 - 每个算出平移的 `frame` 都含 `anchor_residuals` 和 `worst_anchor_refs`。逐点残差按配置里的基准顺序给出位号、对齐后送厂点减基准点的 `delta_x_mm`、`delta_y_mm`、二维距离 `distance_mm`、是否在基准容差内以及是否进入一致集合的 `inlier`。`worst_anchor_refs` 包含达到最大残差的全部位号。残差可用于定位复核对象，同一组基准可能有多个并列最差点。
 - `differences` 记录器件差异。即使整体状态为 `indeterminate`，仍列出已确认的 `missing`、`extra`、`side`，以及 `value` 和 `package`。有唯一对齐变换时，也列出 `position` 和 `angle`。某位号缺失、而一个新位号恰好落在它的期望位置时，按改名处理并记为 `swapped`，`with` 给出新位号，不再重复记为 `missing` 和 `extra`。
-- `pad_differences` 记录可归属到位号的 `pad_offset`。`pad_checked` 只计有归属的器件，包含超限器件。`pad_sides` 是用户传入的板面。`pad_status` 为 `not_requested`、`skipped`（没有一层完成焊盘检查，等同 `pad_skipped: true`）、`incomplete`（有层失败或缺少位号证据）或 `complete`（证据齐全，可能仍有超限）。
+- `pad_differences` 记录可归属到位号的 `pad_offset`，有校正规则时记录校正后的差值。`pad_checked` 计入已按位号判定的器件，包含超限器件。`pad_sides` 是用户传入的板面。`pad_status` 为 `not_requested`、`skipped`（没有一层完成焊盘检查，等同 `pad_skipped: true`）、`incomplete`（有层失败或有位号需要复查）或 `complete`（证据齐全，可能仍有超限）。
 - 双层核验时，`pad_layers` 依次记录顶铜和底铜的 `side`、`status`、位号计数 `checked` / `targets`。状态可为 `complete`、`incomplete`、`failed` 或 `skipped`。失败层含原始错误说明 `message`，失败或跳过层的两项计数为 0。
 - `pad_evidence` 按位号和板面记录 `by_reference`、`copper_only` 或 `unverified`。`by_reference` 同时给出焊盘数、距离及是否在容差内。可能被后绘制的清除对象影响时，`unverified` 带 `reason: "possible_clearance"` 和下述定位线索。拼板内重复位号返回 `reason: "repeated_reference"`。`pad_warnings` 保留板面诊断，普通圆弧和远处的清除对象可与 `pad_status: "complete"` 共存。
 
+  - 配置原点规则且能测量时，`origin` 保留原始距离、原始 X/Y 差值（配准后的送厂原点减去铜层质心）、匹配类型 `matched_by` 和依据 `source`。`status: "corrected"` 时，`applied_dx_mm` / `applied_dy_mm` 是采用的偏移，外层 `distance_mm` 是校正后的距离。`status: "review"` 或 `"pose_mismatch"` 时，外层为 `unverified`，原因是 `pad_origin_review`。
   - `clearance.pad` 给出一块候选受影响焊盘的引脚（X2 未提供时为 `null`）、中心坐标和对象编号。
   - `clearance.object` 给出一个后绘制清除对象的编号、类型（`flash`、`line`、`arc`、`region`）及保守包围范围。每个位号只保留一组线索，便于复查，不表示已经确认交点，也不枚举所有影响。
   - `object_number` 从 1 起，按当前铜层展开后的绘制顺序编号；选择拼板单元后只对该单元的对象编号。坐标以毫米计，选定拼板时已平移到第一个单元的坐标系。`statement_number` 是从 1 起的解析命令序号（光圈宏定义计一条，含注释命令），不是文本行号；块内对象指向定义中的命令，区域指向结束命令。

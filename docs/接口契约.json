@@ -242,6 +242,62 @@
                       "copper_only",
                       "unverified"
                     ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "pad_count": {
+                    "type": "integer"
+                  },
+                  "distance_mm": {
+                    "type": "number"
+                  },
+                  "within_tolerance": {
+                    "type": "boolean"
+                  },
+                  "origin": {
+                    "type": "object",
+                    "required": [
+                      "status",
+                      "matched_by",
+                      "source",
+                      "raw_distance_mm",
+                      "raw_delta_x_mm",
+                      "raw_delta_y_mm"
+                    ],
+                    "properties": {
+                      "status": {
+                        "enum": [
+                          "corrected",
+                          "review",
+                          "pose_mismatch"
+                        ]
+                      },
+                      "matched_by": {
+                        "enum": [
+                          "ref",
+                          "footprint"
+                        ]
+                      },
+                      "source": {
+                        "type": "string"
+                      },
+                      "raw_distance_mm": {
+                        "type": "number"
+                      },
+                      "raw_delta_x_mm": {
+                        "type": "number"
+                      },
+                      "raw_delta_y_mm": {
+                        "type": "number"
+                      },
+                      "applied_dx_mm": {
+                        "type": "number"
+                      },
+                      "applied_dy_mm": {
+                        "type": "number"
+                      }
+                    }
                   }
                 }
               }
