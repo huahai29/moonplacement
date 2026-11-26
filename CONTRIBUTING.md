@@ -38,3 +38,5 @@ npm --prefix web test
 更新验收结果时，运行 `node tests/demo-report.mjs --write`。安装 KiCad 和 `pcbnew` 后，先运行 `node tests/kicad-export.mjs` 与 `node tests/kicad-panel.mjs`，再运行 `node tests/kicad-acceptance-doc.mjs --write`。省略 `--write` 只校验已提交的[验收摘要](docs/acceptance-results.md)。
 
 CI 的 MoonBit 覆盖率门槛在 [tests/coverage-budget.json](tests/coverage-budget.json)。Linux 输出按文件统计。该统计来自 MoonBit 库测试，浏览器和 CLI 用例另行运行。
+
+新增 Gerber 语义时，按[路线图](docs/ROADMAP.md)的验收方式准备输入和预期结果，并更新命令矩阵。准备新版本时见[发布流程](docs/releasing.md)。

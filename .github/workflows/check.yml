@@ -138,6 +138,13 @@ jobs:
             _build/coverage-summary.txt
             _build/pad-boundary/
           if-no-files-found: ignore
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Node.js 24 命令行与文件读写
+        run: |
+          node --version
+          node --test tests/cli.test.mjs
       - uses: actions/upload-pages-artifact@v4
         if: runner.os == 'Linux' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:

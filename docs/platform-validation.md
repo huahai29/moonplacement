@@ -2,6 +2,8 @@
 
 GitHub Actions 在 Windows 和 Linux 使用同一份固定 MoonBit 工具链、Node.js 22 和相同输入，分别运行 JS、Wasm-GC 单测及 CLI 测试。Linux 另外运行 Wasm、Native、KiCad 实导出和 PyGerber 检查。
 
+两平台也使用 Node.js 24 复跑同一个 JS 构建的 CLI 测试。用例覆盖中文路径、输入字节指纹、输入被改写、并发创建报告和暂存文件清理。[CLI 用例](../tests/cli.test.mjs)
+
 两个平台都校验公开库接口快照，并对 JS Release 构建运行[配准数值对照](registration-validation.md)。测试将编译告警视为失败。
 
 跨平台比对包含正常、差异、配准歧义、相似变换、圆弧清除、正常拼板、偏移拼板和越界单元，共八例。调用同一个命令行入口，文件放在带空格和中文的临时路径下，成功生成的 HTML 必须以 UTF-8 读回，且能找到中文板面说明。

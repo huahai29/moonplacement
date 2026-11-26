@@ -72,7 +72,7 @@ KiCad 与嘉立创 EDA 混用时，可在同一份配置里选择封装原点或
 - [块光圈与 PyGerber 对照](docs/gerber-acceptance.md#块光圈与独立对照)：核验展开前后的拼板几何，并对比 KiCad 实际导出铜层的采样点。
 - [配置和报告字段](docs/audit.md) · [Gerber 2024.05 命令覆盖表](docs/gerber-acceptance.md#规范命令矩阵) · [CI 记录](https://github.com/huahai29/moonplacement/actions/workflows/check.yml)
 
-Windows 和 Linux 的 CLI 报告会在 CI 中逐项比对，含中文路径下生成 HTML 的案例。[一致性检查](docs/platform-validation.md)
+CI 在 Windows 和 Linux 上用 Node.js 22 和 24 验证 CLI。两平台在 Node.js 22 下还会逐项比对报告，含中文路径下生成 HTML 的案例。[一致性检查](docs/platform-validation.md)
 
 解析、配准和判定由 MoonBit 实现。Gerber 2024.05 是兼容目标，当前覆盖以验收表为准。KiCad 和 PyGerber 只用于验证样例。
 
@@ -84,4 +84,4 @@ Windows 和 Linux 的 CLI 报告会在 CI 中逐项比对，含中文路径下�
 
 [架构说明](docs/architecture.md) · [报告契约 JSON](docs/接口契约.json)
 
-[参与开发](CONTRIBUTING.md) · [第三方来源](THIRD_PARTY_NOTICES.md) · [MIT 许可证](LICENSE)
+[参与开发](CONTRIBUTING.md) · [Gerber 路线图](docs/ROADMAP.md) · [发布流程](docs/releasing.md) · [第三方来源](THIRD_PARTY_NOTICES.md) · [MIT 许可证](LICENSE)
