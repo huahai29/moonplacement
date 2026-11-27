@@ -24,6 +24,9 @@ test "indexed clearance matches reverse drawing order across branches" {
         pin: None,
         statement_number: i + 1,
         block_instance: None,
+        aperture_attributes: @attributes.empty(),
+        object_attributes: @attributes.empty(),
+        block_attributes: [],
       },
       bounds: bounds_at(center, 0.3),
     })

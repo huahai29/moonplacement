@@ -2,6 +2,7 @@
 priv struct GerberBlock {
   code : Int32
   features : Array[GerberFeature]
+  attributes : GerberAttributes
 }
 
 ///|
@@ -56,7 +57,7 @@ fn parse_block(
     guard state.block_stack.pop() is Some(block) else {
       raise InvalidGerber(source, "AB 结束指令前没有打开块光圈")
     }
-    state.blocks[block.code] = block.features
+    state.blocks[block.code] = block
     state.current = None
   } else {
     guard rest.has_prefix("D") else {
@@ -75,7 +76,11 @@ fn parse_block(
     if state.block_stack.length() >= 32 {
       raise InvalidGerber(source, "AB 块光圈定义嵌套超过 32 层")
     }
-    state.block_stack.push({ code, features: [], })
+    state.block_stack.push({
+      code,
+      features: [],
+      attributes: state.aperture_attributes,
+    })
   }
 }
 
@@ -107,11 +112,13 @@ fn GerberState::charge_block(
 ///|
 fn flash_block(
   state : GerberState,
-  contents : Array[GerberFeature],
+  block : GerberBlock,
   target : Point,
   source : String,
 ) -> Unit raise GerberError {
   let matrix = aperture_matrix(state)
+  let contents = block.features
+  let call = { aperture: block.attributes, object: state.object_attributes, }
   let seen_here : Map[String, Bool] = Map([])
   let track = state.block_stack.is_empty()
   let instance = if track {
@@ -138,10 +145,13 @@ fn flash_block(
       raise InvalidGerber(source, "AB 变换后的几何坐标超出范围")
     }
     let dark = item.dark == state.dark
-    let refdes = match item.refdes {
-      None if contents.length() == 1 && kind is Flash(_, _) =>
-        feature_refdes(state)
-      other => other
+    // Only a single flash has an unambiguous pad at the block call site.
+    let (refdes, pin) = if item.refdes is None &&
+      contents.length() == 1 &&
+      kind is Flash(_, _) {
+      attribute_owner(call.object)
+    } else {
+      (item.refdes, item.pin)
     }
     if track && dark && kind is Flash(_, _) && refdes is Some(refdes) {
       let key = designator(refdes)
@@ -150,19 +160,20 @@ fn flash_block(
       }
       seen_here[key] = true
     }
-    let pin = if item.refdes is None && refdes is Some(_) {
-      state.pin_name
+    let block_attributes = if call.aperture.is_empty() && call.object.is_empty() {
+      item.block_attributes
     } else {
-      item.pin
+      [call, ..item.block_attributes]
     }
     state.emit(
       {
+        ..item,
         kind,
         dark,
         refdes,
         pin,
-        statement_number: item.statement_number,
         block_instance: instance,
+        block_attributes,
       },
       source,
     )

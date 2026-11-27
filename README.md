@@ -15,7 +15,7 @@ PCB 送厂前，用 MoonPlacement 对照设计坐标表和送厂坐标表，找�
 
 [离线 HTML 报告](docs/demo/panel-d1.html)可从 GitHub 下载原文件后用浏览器打开。[复现命令](#复现报告)
 
-[打开在线工作台](https://huahai29.github.io/moonplacement/)可直接运行 D1 示例或选择自己的文件。核对在浏览器中执行。页面显示完整计数和有限预览，点击下载时才生成完整 JSON、离线 HTML 或[核验凭据](docs/receipt.md)。
+[打开在线工作台](https://huahai29.github.io/moonplacement/)可直接运行 D1 示例或选择自己的文件。核对在浏览器中执行。输入位号可查询两表差异、板面、拼板单元和铜层复查原因，预览中有对应器件时会在板图标出。完整 JSON、离线 HTML 或[核验凭据](docs/receipt.md)按需下载。
 
 ![MoonPlacement 离线报告显示第 2 行第 2 列的 D1 铜层偏差](docs/demo/panel-d1.png)
 
@@ -63,7 +63,7 @@ KiCad 与嘉立创 EDA 混用时，可在同一份配置里选择封装原点或
 
 ## 可复现案例
 
-[0.2.0 版本与验收](docs/release-0.2.0.md)汇总库安装、实导出、拼板复现和性能数据。在 MoonBit 项目中使用时，运行 `moon add huahai29/moonplacement@0.2.0`，参考[公共 API](docs/api.md)。
+在 MoonBit 项目中运行 `moon add huahai29/moonplacement@0.3.0`。[公共 API](docs/api.md) · [0.3.0 更新与复现](docs/release-0.3.0.md)
 
 - [KiCad 双面实导出](examples/README.md#铜层实导出验证)可复现两张表都标错 C7 时，铜层如何查出偏移。
 - [KiCad 与嘉立创 EDA 双面实板对照](docs/cross-eda.md)使用两款软件各自的原始坐标表，比较封装中心与原点口径，并用原始底铜复核 C17 偏移。

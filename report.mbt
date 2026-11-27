@@ -231,6 +231,7 @@ fn report_board(
   differences : Array[Json],
   pad_differences : Array[Json],
   preview : Bool,
+  focus : String?,
 ) -> String {
   let count = json_int(report, "baseline_count")
   if preview && count > PREVIEW_MARKER_LIMIT {
@@ -313,6 +314,11 @@ fn report_board(
     let cx = padding + (point.x - min_x) * scale
     let cy = height - padding - (point.y - min_y) * scale
     let color = marker_color(part.refdes, problems, pads)
+    if focus == Some(part.refdes) {
+      svg.write_string(
+        "<circle cx=\"\{cx}\" cy=\"\{cy}\" r=\"11\" fill=\"none\" stroke=\"#007a76\" stroke-width=\"3\" data-focused=\"true\"/>",
+      )
+    }
     svg.write_string(
       "<circle cx=\"\{cx}\" cy=\"\{cy}\" r=\"5\" fill=\"\{color}\"/>",
     )
@@ -352,13 +358,17 @@ fn report_board(
 /// Render a self-contained HTML report. Baseline positions are normalized using
 /// the report's coordinate convention before plotting position offsets.
 pub fn render_html(report : Json, baseline : PlacementTable) -> String {
-  render_report(report, baseline, preview=false)
+  render_report(report, baseline, preview=false, focus=None)
 }
 
 ///|
 /// Render a bounded online preview with optional detail and board omissions.
-pub fn render_html_preview(report : Json, baseline : PlacementTable) -> String {
-  render_report(report, baseline, preview=true)
+pub fn render_html_preview(
+  report : Json,
+  baseline : PlacementTable,
+  focus? : String,
+) -> String {
+  render_report(report, baseline, preview=true, focus=focus.map(designator))
 }
 
 ///|
@@ -366,6 +376,7 @@ fn render_report(
   report : Json,
   baseline : PlacementTable,
   preview~ : Bool,
+  focus~ : String?,
 ) -> String {
   let status = json_string(report, "status")
   let reason = json_string(report, "reason")
@@ -414,7 +425,7 @@ fn render_report(
   }
   html.write_string(import_html(report, preview))
   html.write_string(
-    report_board(report, baseline, differences, pad_differences, preview),
+    report_board(report, baseline, differences, pad_differences, preview, focus),
   )
   html.write_string("<h2>器件差异</h2>")
   html.write_string(differences_table(differences, preview))

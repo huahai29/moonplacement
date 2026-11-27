@@ -44,6 +44,8 @@ fn decode_fingerprints(text : String) -> Array[@mp.ReceiptInput] {
 priv struct BrowserAudit {
   result : @mp.AuditResult
   baseline : @mp.PlacementTable
+  delivery : @mp.PlacementTable
+  policy : @mp.Policy
   receipt_inputs : Array[@mp.ReceiptInput]?
   build_sha256 : String
 }
@@ -161,7 +163,14 @@ pub fn audit_files(
         None
       }
     }
-    current_audit.val = Some({ result, baseline, receipt_inputs, build_sha256, })
+    current_audit.val = Some({
+      result,
+      baseline,
+      delivery,
+      policy,
+      receipt_inputs,
+      build_sha256,
+    })
     {
       "summary": preview_summary(result.report, receipt_inputs is Some(_)),
       "html": Json(@mp.render_html_preview(result.report, baseline)),
@@ -169,6 +178,31 @@ pub fn audit_files(
   } catch {
     @mp.InvalidInput(field, message) =>
       { "report": @mp.input_error_report(field, message) }
+  }
+  response.stringify()
+}
+
+///|
+#export_name("find_audit_reference")
+pub fn find_audit_reference(reference : String) -> String {
+  guard current_audit.val is Some(audit) else { return "" }
+  let found = @mp.lookup_reference(
+    audit.result.report,
+    audit.baseline,
+    audit.delivery,
+    audit.policy,
+    reference,
+  )
+  let focus = if found is { "found": True, .. } {
+    Some(reference)
+  } else {
+    None
+  }
+  let response : Json = {
+    "reference": found,
+    "html": Json(
+      @mp.render_html_preview(audit.result.report, audit.baseline, focus?),
+    ),
   }
   response.stringify()
 }

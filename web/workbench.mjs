@@ -9,6 +9,9 @@ const downloads = byId('downloads');
 const frame = byId('report-frame');
 const exportNotice = byId('export-notice');
 const previewNotice = byId('preview-notice');
+const referenceForm = byId('reference-form');
+const referenceInput = byId('reference-input');
+const referenceResult = byId('reference-result');
 const cell = byId('use-cell');
 const row = byId('row');
 const column = byId('column');
@@ -128,10 +131,26 @@ function closeAudit() {
   auditWorker = undefined;
 }
 
+function setBusy(busy) {
+  run.disabled = demo.disabled = byId('reference-submit').disabled = busy;
+  for (const button of downloads.querySelectorAll('button')) button.disabled = busy;
+}
+
 function resetResult() {
   closeAudit();
   frame.hidden = metrics.hidden = downloads.hidden = previewNotice.hidden = exportNotice.hidden = true;
+  referenceForm.hidden = referenceResult.hidden = true;
+  referenceForm.reset();
+  referenceResult.replaceChildren();
   frame.removeAttribute('srcdoc');
+}
+
+function showPreview(html, notice) {
+  frame.hidden = !html;
+  if (html) frame.srcdoc = html;
+  else frame.removeAttribute('srcdoc');
+  previewNotice.textContent = notice ?? '';
+  previewNotice.hidden = !notice;
 }
 
 function show({ report, summary, html, preview_notice }) {
@@ -149,20 +168,93 @@ function show({ report, summary, html, preview_notice }) {
   byId('table-count').textContent = String(summary.table_count);
   byId('pad-count').textContent = String(summary.pad_count);
   byId('checked-count').textContent = String(summary.pad_checked);
-  metrics.hidden = downloads.hidden = false;
-  if (html) {
-    frame.srcdoc = html;
-    frame.hidden = false;
-  }
-  previewNotice.textContent = preview_notice ?? '';
-  previewNotice.hidden = !preview_notice;
+  metrics.hidden = downloads.hidden = referenceForm.hidden = false;
+  showPreview(html, preview_notice);
   byId('download-receipt').hidden = !summary.receipt_available;
+}
+
+const sides = { top: '顶面', bottom: '底面' };
+const findings = {
+  missing: '送厂表漏件', missing_baseline: '基准表缺件', missing_both: '两表均缺件',
+  extra: '送厂表多件', value: '器件值差异', package: '封装差异', side: '板面差异', swapped: '位号调换',
+};
+const copperReasons = {
+  possible_clearance: '存在可能影响焊盘的清除图形',
+  repeated_reference: '多个拼板或块实例使用相同位号',
+  pad_origin_review: '封装原点需复查',
+};
+const formatMeasure = value => value.toLocaleString('zh-CN', { maximumFractionDigits: 6 });
+
+function findingDescription(item) {
+  if (item.kind === 'position') return `位置偏差 ${formatMeasure(item.distance_mm)} mm`;
+  if (item.kind === 'angle') return `角度偏差 ${formatMeasure(item.delta_deg)}°`;
+  if (item.kind === 'swapped') return `位号调换 · ${item.with}`;
+  const title = findings[item.kind] ?? item.kind;
+  if (item.kind === 'side') return `${title} · ${sides[item.baseline]} → ${sides[item.delivery]}`;
+  if (item.kind === 'value' || item.kind === 'package') return `${title} · ${item.baseline} → ${item.delivery}`;
+  return title;
+}
+
+function copperDescription(copper) {
+  switch (copper.status) {
+    case 'by_reference':
+      return `铜层偏差 ${formatMeasure(copper.distance_mm)} mm${copper.within_tolerance ? '，在容差内' : '，超过容差'}`;
+    case 'copper_only': return '附近有铜，位号归属未知';
+    case 'unverified': {
+      const reason = copper.origin_status === 'pose_mismatch' ? '板面或基准角度与原点校正规则不符'
+        : (copperReasons[copper.reason] ?? '缺少可用的焊盘证据');
+      return copper.source ? `${reason} · ${copper.source}` : reason;
+    }
+    default: return '此位号没有铜层核验记录';
+  }
+}
+
+function showReference(reference) {
+  referenceResult.replaceChildren();
+  if (!reference.found) {
+    referenceResult.textContent = `${reference.ref} 不在此次核对范围内。`;
+    return;
+  }
+  const heading = document.createElement('h3');
+  heading.textContent = reference.ref;
+  const location = document.createElement('p');
+  const cells = reference.panels.map(cell => `${sides[cell.side]}第 ${cell.row} 行第 ${cell.column} 列`);
+  location.textContent = [`基准 ${sides[reference.baseline_side] ?? '缺件'}`,
+    `送厂 ${sides[reference.delivery_side] ?? '缺件'}`, ...cells].join(' · ');
+  const list = document.createElement('ul');
+  const entries = reference.differences.length ? reference.differences.map(findingDescription) : ['坐标表无差异记录'];
+  entries.push(copperDescription(reference.copper));
+  for (const entry of entries) {
+    const item = document.createElement('li');
+    item.textContent = entry;
+    list.append(item);
+  }
+  referenceResult.append(heading, location, list);
+}
+
+async function findReference(event) {
+  event.preventDefault();
+  const reference = referenceInput.value.trim();
+  if (!auditWorker || run.disabled || !reference) return;
+  setBusy(true);
+  referenceResult.hidden = false;
+  referenceResult.textContent = '正在查找…';
+  try {
+    const result = await askWorker({ action: 'lookup', reference }, '位号查询超时，请重新核对。');
+    showReference(result.reference);
+    showPreview(result.html, result.preview_notice);
+  } catch (error) {
+    closeAudit();
+    referenceForm.hidden = downloads.hidden = true;
+    referenceResult.textContent = error.message;
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function exportReport(format) {
   if (!auditWorker || run.disabled) return;
-  run.disabled = demo.disabled = true;
-  for (const button of downloads.querySelectorAll('button')) button.disabled = true;
+  setBusy(true);
   exportNotice.textContent = '正在生成下载文件…';
   exportNotice.hidden = false;
   try {
@@ -179,17 +271,16 @@ async function exportReport(format) {
     exportNotice.hidden = true;
   } catch (error) {
     closeAudit();
-    downloads.hidden = true;
+    referenceForm.hidden = downloads.hidden = true;
     exportNotice.textContent = error.message;
   } finally {
-    run.disabled = demo.disabled = false;
-    for (const button of downloads.querySelectorAll('button')) button.disabled = false;
+    setBusy(false);
   }
 }
 
 async function check(useDemo) {
   if (run.disabled) return;
-  run.disabled = demo.disabled = true;
+  setBusy(true);
   resetResult();
   setState('idle', '正在核对…');
   try {
@@ -203,7 +294,7 @@ async function check(useDemo) {
     closeAudit();
     setState('input_error', '无法完成核对', error.message);
   } finally {
-    run.disabled = demo.disabled = false;
+    setBusy(false);
   }
 }
 
@@ -212,6 +303,7 @@ form.addEventListener('submit', event => {
   void check(false);
 });
 demo.addEventListener('click', () => void check(true));
+referenceForm.addEventListener('submit', event => void findReference(event));
 for (const format of Object.keys(exportNames)) {
   byId(`download-${format}`).addEventListener('click', () => void exportReport(format));
 }

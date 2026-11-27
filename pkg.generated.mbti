@@ -2,6 +2,7 @@
 package "huahai29/moonplacement"
 
 import {
+  "moonbitlang/core/immut/hashmap",
   "moonbitlang/core/json",
 }
 
@@ -32,6 +33,8 @@ pub fn gerber_pads(GerberDocument) -> Array[CopperPad]
 
 pub fn input_error_report(String, String) -> @json.Json
 
+pub fn lookup_reference(@json.Json, PlacementTable, PlacementTable, Policy, String) -> @json.Json
+
 pub fn pad_groups(Array[CopperPad]) -> Map[String, Array[CopperPad]]
 
 pub fn parse_gerber(String, source~ : String) -> GerberDocument raise GerberError
@@ -54,7 +57,7 @@ pub fn register(Array[Point], Array[Point], TransformModel, Double) -> Registrat
 
 pub fn render_html(@json.Json, PlacementTable) -> String
 
-pub fn render_html_preview(@json.Json, PlacementTable) -> String
+pub fn render_html_preview(@json.Json, PlacementTable, focus? : String) -> String
 
 pub fn report_contract() -> @json.Json
 
@@ -93,6 +96,11 @@ pub struct GerberArc {
   stroke_radius : Double
 }
 
+pub struct GerberBlockAttributes {
+  aperture : @hashmap.HashMap[String, Array[String]]
+  object : @hashmap.HashMap[String, Array[String]]
+}
+
 pub struct GerberBounds {
   lower : Point
   upper : Point
@@ -107,6 +115,7 @@ pub struct GerberContour {
 pub struct GerberDocument {
   source : String
   file_function : String?
+  file_attributes : @hashmap.HashMap[String, Array[String]]
   features : Array[GerberFeature]
   warnings : Array[String]
   repeated_refs : Map[String, Bool]
@@ -121,6 +130,9 @@ pub struct GerberFeature {
   pin : String?
   statement_number : Int32
   block_instance : Int32?
+  aperture_attributes : @hashmap.HashMap[String, Array[String]]
+  object_attributes : @hashmap.HashMap[String, Array[String]]
+  block_attributes : Array[GerberBlockAttributes]
 }
 
 pub struct GerberGrid {
@@ -230,5 +242,6 @@ pub(all) enum Verdict {
 pub fn Verdict::exit_code(Self) -> Int32
 
 // Type aliases
+pub type GerberAttributes = @hashmap.HashMap[String, Array[String]]
 
 // Traits

@@ -27,6 +27,9 @@ pub struct GerberFeature {
   pin : String?
   statement_number : Int32
   block_instance : Int32?
+  aperture_attributes : GerberAttributes
+  object_attributes : GerberAttributes
+  block_attributes : Array[GerberBlockAttributes]
 }
 
 ///|
@@ -36,6 +39,7 @@ pub struct GerberDocument {
   source : String
   /// Complete normalized X2 FileFunction statement when declared.
   file_function : String?
+  file_attributes : GerberAttributes
   features : Array[GerberFeature]
   warnings : Array[String]
   /// Normalized references that appear in multiple panel copies.
@@ -62,6 +66,7 @@ priv struct GerberState {
   mut format : CoordinateFormat?
   mut scale : Double?
   apertures : Map[Int32, Aperture]
+  aperture_metadata : Map[Int32, GerberAttributes]
   macros : Map[String, Array[String]]
   mut current_aperture : Int32
   mut mirror_x : Bool
@@ -77,9 +82,9 @@ priv struct GerberState {
   mut region_error : Double
   mut region_contours : Array[GerberContour]
   mut region_vertices : Int32
-  mut refdes : String?
-  mut pin_refdes : String?
-  mut pin_name : String?
+  mut aperture_attributes : GerberAttributes
+  mut object_attributes : GerberAttributes
+  mut file_attributes : GerberAttributes
   mut statement_number : Int32
   mut file_function : String?
   features : Array[GerberFeature]
@@ -89,7 +94,7 @@ priv struct GerberState {
   keep_panel_base : Bool
   mut panel_base : (Int32, Int32)?
   panel_grids : Array[GerberGrid]
-  blocks : Map[Int32, Array[GerberFeature]]
+  blocks : Map[Int32, GerberBlock]
   block_stack : Array[GerberBlock]
   mut block_budget : Int32
   block_seen_refs : Map[String, Bool]
@@ -125,6 +130,7 @@ fn split_statements(
   let statements : Array[String] = []
   let mut buffer = StringBuilder()
   let mut macro_body = false
+  let head : Array[Char] = []
   for _, ch in text.iter2() {
     match ch {
       '*' if macro_body => buffer.write_char('*')
@@ -136,6 +142,7 @@ fn split_statements(
         } else if !statement.is_empty() {
           statements.push(statement)
           buffer = StringBuilder()
+          head.clear()
           if statement == "M02" {
             return statements
           }
@@ -145,9 +152,17 @@ fn split_statements(
         statements.push(buffer.to_string())
         buffer = StringBuilder()
         macro_body = false
+        head.clear()
       }
+      ' ' if head is ['T', 'A' | 'O' | 'F' | 'D', ..] || head is ['G', '0', '4'] =>
+        buffer.write_char(ch)
       '%' | '\r' | '\n' | '\t' | ' ' => ()
-      _ => buffer.write_char(ch)
+      _ => {
+        if head.length() < 3 {
+          head.push(ch)
+        }
+        buffer.write_char(ch)
+      }
     }
   }
   if macro_body {
@@ -285,13 +300,13 @@ fn parse_aperture(
   for value in fields {
     params.push(aperture_number(value, source))
   }
-  if state.macros.get(template) is Some(body) {
-    state.apertures[code] = macro_aperture(
-      template, body, params, scale, source,
-    )
-    return
+  let aperture = if state.macros.get(template) is Some(body) {
+    macro_aperture(template, body, params, scale, source)
+  } else {
+    standard_aperture(template, params, scale, source)
   }
-  state.apertures[code] = standard_aperture(template, params, scale, source)
+  state.apertures[code] = aperture
+  state.aperture_metadata[code] = state.aperture_attributes
 }
 
 ///|
@@ -345,52 +360,6 @@ fn aperture_matrix(state : GerberState) -> Transform2D {
     d: rotation.d * sx,
     e: rotation.e * sy,
     f: 0.0,
-  }
-}
-
-///|
-fn parse_attribute(state : GerberState, chars : Array[Char]) -> Unit {
-  if chars.length() < 5 || chars[2] != '.' || chars[4] != ',' {
-    return
-  }
-  let value = StringBuilder()
-  let mut end = 5
-  for index in 5..<chars.length() {
-    if chars[index] == ',' {
-      break
-    }
-    value.write_char(chars[index])
-    end = index + 1
-  }
-  let refdes = value.to_string()
-  let attribute = if refdes.is_empty() { None } else { Some(refdes) }
-  match chars[3] {
-    'C' => state.refdes = attribute
-    'P' => {
-      state.pin_refdes = attribute
-      state.pin_name = None
-      let start = end + 1
-      let pin = StringBuilder()
-      for i in start..<chars.length() {
-        if chars[i] == ',' {
-          break
-        }
-        pin.write_char(chars[i])
-      }
-      let pin = pin.to_string()
-      if attribute is Some(_) && !pin.is_empty() {
-        state.pin_name = Some(pin)
-      }
-    }
-    _ => ()
-  }
-}
-
-///|
-fn feature_refdes(state : GerberState) -> String? {
-  match state.pin_refdes {
-    Some(_) => state.pin_refdes
-    None => state.refdes
   }
 }
 
@@ -490,14 +459,11 @@ fn flush_region(state : GerberState, source : String) -> Unit raise GerberError 
     bounds = bounds.union(contour.bounds)
   }
   state.emit(
-    {
-      kind: Region({ contours, bounds, }),
-      dark: state.dark,
-      refdes: feature_refdes(state),
-      pin: state.pin_name,
-      statement_number: state.statement_number,
-      block_instance: None,
-    },
+    make_feature(
+      state,
+      Region({ contours, bounds, }),
+      state.aperture_attributes,
+    ),
     source,
   )
   state.region = false
@@ -648,28 +614,26 @@ fn process_operation(
         if shape.area().is_inf() || shape.area().is_nan() {
           raise InvalidGerber(source, "描线光圈面积超出可计算范围")
         }
+        let kind = match offset {
+          Some(offset) =>
+            Arc(
+              make_gerber_arc(
+                start,
+                target,
+                offset,
+                state.interpolation == 2,
+                shape.bounding_radius(),
+                source,
+              ),
+            )
+          None => Draw(shape, start, target)
+        }
         state.emit(
-          {
-            kind: match offset {
-              Some(offset) =>
-                Arc(
-                  make_gerber_arc(
-                    start,
-                    target,
-                    offset,
-                    state.interpolation == 2,
-                    shape.bounding_radius(),
-                    source,
-                  ),
-                )
-              None => Draw(shape, start, target)
-            },
-            dark: state.dark,
-            refdes: feature_refdes(state),
-            pin: state.pin_name,
-            statement_number: state.statement_number,
-            block_instance: None,
-          },
+          make_feature(
+            state,
+            kind,
+            state.aperture_metadata[state.current_aperture],
+          ),
           source,
         )
       }
@@ -705,14 +669,11 @@ fn process_operation(
         raise InvalidGerber(source, "闪光几何超出可计算范围")
       }
       state.emit(
-        {
-          kind: Flash(shape, center),
-          dark: state.dark,
-          refdes: feature_refdes(state),
-          pin: state.pin_name,
-          statement_number: state.statement_number,
-          block_instance: None,
-        },
+        make_feature(
+          state,
+          Flash(shape, center),
+          state.aperture_metadata[state.current_aperture],
+        ),
         source,
       )
     }
@@ -731,10 +692,24 @@ fn process_statement(
   if chars.length() == 0 {
     return
   }
-  if statement == "G04#@!TF.FileFunction" ||
-    statement.has_prefix("G04#@!TF.FileFunction,") {
-    parse_file_function(state, chars_to_string(chars, 6), source)
-    return
+  if statement.has_prefix("G04") {
+    let comment = statement[3:].trim().to_owned()
+    if comment.has_prefix("#@!") {
+      let attribute = comment[3:].trim().to_owned()
+      if attribute.has_prefix("TF") ||
+        attribute.has_prefix("TA") ||
+        attribute.has_prefix("TO") ||
+        attribute.has_prefix("TD") {
+        if state.region {
+          raise InvalidGerber(
+            source,
+            "铜区内不能改变属性：\{statement}",
+          )
+        }
+        parse_gerber_attribute(state, attribute, source)
+        return
+      }
+    }
   }
   if state.region &&
     !(chars[0] == 'G' ||
@@ -789,44 +764,8 @@ fn process_statement(
           source,
           "暂不支持会改变铜层几何的指令：\{statement}",
         )
-      ('T', 'O') => {
-        // Accept the old example's nonstandard reset spelling as well as TD.
-        if chars_to_string(chars, 2) == ".D" {
-          state.refdes = None
-          state.pin_refdes = None
-          state.pin_name = None
-        } else {
-          parse_attribute(state, chars)
-        }
-        return
-      }
-      ('T', 'D') => {
-        match chars_to_string(chars, 2) {
-          "" => {
-            state.refdes = None
-            state.pin_refdes = None
-            state.pin_name = None
-          }
-          ".C" => state.refdes = None
-          ".P" => {
-            state.pin_refdes = None
-            state.pin_name = None
-          }
-          _ => ()
-        }
-        return
-      }
-      ('T', 'F') => {
-        if statement == "TF.FilePolarity,Negative" {
-          raise InvalidGerber(source, "暂不支持负像铜层核验")
-        }
-        if statement == "TF.FileFunction" ||
-          statement.has_prefix("TF.FileFunction,") {
-          parse_file_function(state, statement, source)
-        }
-        return
-      }
-      ('T', 'A') => return
+      ('T', 'F' | 'A' | 'O' | 'D') =>
+        return parse_gerber_attribute(state, statement, source)
       _ => ()
     }
   }
@@ -864,6 +803,7 @@ fn parse_gerber_layer(
     format: None,
     scale: None,
     apertures: Map([]),
+    aperture_metadata: Map([]),
     macros: Map([]),
     current_aperture: 0,
     mirror_x: false,
@@ -879,9 +819,9 @@ fn parse_gerber_layer(
     region_error: 0.0,
     region_contours: [],
     region_vertices: 0,
-    refdes: None,
-    pin_refdes: None,
-    pin_name: None,
+    aperture_attributes: @attributes.empty(),
+    object_attributes: @attributes.empty(),
+    file_attributes: @attributes.empty(),
     statement_number: 0,
     file_function: None,
     features: [],
@@ -925,6 +865,7 @@ fn parse_gerber_layer(
   let document : GerberDocument = {
     source,
     file_function: state.file_function,
+    file_attributes: state.file_attributes,
     features: state.features,
     warnings: state.warnings,
     repeated_refs: state.repeated_refs,

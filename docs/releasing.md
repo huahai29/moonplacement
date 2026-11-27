@@ -20,7 +20,7 @@ moon package --frozen --list
 moon package --frozen
 ```
 
-核对清单与 [`.moonignore`](../.moonignore)。Mooncakes 包提供 MoonBit 模块，工作台构建及第三方实板输入从 GitHub 对应提交取得。准备好的归档位于 `_build/publish/`，CI 会解包后从独立项目跑三个库示例。
+核对清单与 [`.moonignore`](../.moonignore)。Mooncakes 包提供 MoonBit 模块，工作台构建及第三方实板输入从 GitHub 对应提交取得。准备好的归档位于 `_build/publish/`，CI 会解包后从独立项目跑三个库示例和跨 EDA 实板案例。
 
 首次发布或登录过期时先用 `moon login`。从同一干净检出执行 `moon publish --frozen`。按下节复验通过后，为该提交推送 `vX.Y.Z` 标签，并在 GitHub Releases 选择该标签，使用 `docs/release-X.Y.Z.md` 的内容发布说明。[MoonBit 发布文档](https://docs.moonbitlang.com/en/stable/toolchain/moon/package-manage-tour.html) · [GitHub Release 文档](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository)
 
@@ -31,4 +31,4 @@ git push origin refs/tags/vX.Y.Z
 
 ## 从注册表复验
 
-在发布源码的根目录运行 `node tests/release-consumer.mjs`。脚本创建独立项目，从 Mooncakes 安装 `moon.mod` 声明的版本，在 JS 和 Wasm-GC 上验证 D1 偏位、拼板证据和配准。GitHub Release 建立后，再核对标签、Mooncakes 安装命令和该标签构建的凭据版本均指向这次发行。[0.2.0 验收记录](release-0.2.0.md)
+在发布源码的根目录运行 `node tests/release-consumer.mjs`。脚本创建独立项目，从 Mooncakes 安装 `moon.mod` 声明的版本，在 JS 和 Wasm-GC 上验证 D1 偏位、拼板证据和配准。JS 实板回归使用原始底铜核对 44 个位号，再检查 C17 偏移。GitHub Release 建立后，再核对标签、Mooncakes 安装命令和该标签构建的凭据版本均指向这次发行。[0.3.0 验收方法](release-0.3.0.md)

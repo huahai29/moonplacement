@@ -1,4 +1,4 @@
-import { audit_files, export_audit, receiptBuildSha256 } from './engine.mjs';
+import { audit_files, export_audit, find_audit_reference, receiptBuildSha256 } from './engine.mjs';
 
 const PREVIEW_BYTES = 256 * 1024;
 
@@ -8,22 +8,27 @@ function audit({ baseline, delivery, policy, top, bottom, row, column }) {
   const fingerprints = files.every(([, file]) => file.sha256)
     ? JSON.stringify(files.map(([role, { bytes, sha256 }]) => ({ role, bytes, sha256 })))
     : '';
-  const result = JSON.parse(audit_files(
+  return JSON.parse(audit_files(
     baseline.text, baseline.name, delivery.text, delivery.name, policy.text,
     top.text, top.name, bottom.text, bottom.name, row, column,
     fingerprints, receiptBuildSha256,
   ));
+}
+
+function sendPreview(result) {
   if (result.html && new Blob([result.html]).size > PREVIEW_BYTES) {
     delete result.html;
     result.preview_notice = '预览超过大小上限。下载报告可查看完整明细。';
   }
-  return result;
+  self.postMessage(result);
 }
 
 self.onmessage = ({ data }) => {
   try {
     if (data.action === 'audit') {
-      self.postMessage(audit(data.input));
+      sendPreview(audit(data.input));
+    } else if (data.action === 'lookup') {
+      sendPreview(JSON.parse(find_audit_reference(data.reference)));
     } else {
       const content = export_audit(data.format);
       if (!content) throw new Error('Missing audit export');
@@ -33,6 +38,6 @@ self.onmessage = ({ data }) => {
   } catch {
     self.postMessage({ error: data.action === 'audit'
       ? '核对程序未能完成。请检查文件，或使用命令行工具复查。'
-      : '生成报告失败。请重新核对，或使用命令行工具导出。' });
+      : data.action === 'lookup' ? '位号查询失败，请重新核对。' : '生成报告失败。请重新核对，或使用命令行工具导出。' });
   }
 };

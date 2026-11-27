@@ -11,6 +11,12 @@ async function download(page, label, filename) {
   return readFile(await file.path(), 'utf8');
 }
 
+async function lookup(page, reference) {
+  await page.getByRole('searchbox', { name: '按位号查询' }).fill(reference);
+  await page.getByRole('button', { name: '查找' }).click();
+  return page.locator('#reference-result');
+}
+
 test('D1 sample downloads both report formats and a receipt for the same audit', async ({ page }) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -21,6 +27,13 @@ test('D1 sample downloads both report formats and a receipt for the same audit',
   const preview = page.frameLocator('#report-frame');
   await expect(preview.getByText('顶面拼板单元：第 2 行，第 2 列。')).toBeVisible();
   await expect(preview.getByRole('cell', { name: 'D1', exact: true })).toBeVisible();
+  const lookedUp = await lookup(page, ' d1 ');
+  await expect(lookedUp.getByRole('heading', { name: 'D1' })).toBeVisible();
+  await expect(lookedUp).toContainText('顶面第 2 行第 2 列');
+  await expect(lookedUp).toContainText('铜层偏差 0.300008 mm，超过容差');
+  await expect(preview.locator('circle[data-focused="true"]')).toHaveCount(1);
+  await expect(await lookup(page, 'unlisted')).toContainText('UNLISTED 不在此次核对范围内');
+  await expect(preview.locator('circle[data-focused="true"]')).toHaveCount(0);
   const report = JSON.parse(await download(page, '下载 JSON', 'moonplacement-report.json'));
   expect(report.schema_version).toBe(3);
   expect(report.differences).toEqual([]);
@@ -126,6 +139,9 @@ test('the original KiCad and EasyEDA exports use the uploaded placement profile'
   await page.getByRole('button', { name: '开始核对' }).click();
   await expect(preview.getByRole('listitem').filter({ hasText: 'J1（底面）' })).toContainText('原因：复查 <J1>');
   await expect(page.getByRole('status')).toHaveText('无法确认');
+  const j1 = await lookup(page, 'J1');
+  await expect(j1).toContainText('基准 底面 · 送厂 底面');
+  await expect(j1).toContainText('封装原点需复查 · 复查 <J1>');
 });
 
 test('the workbench reports a failed top layer alongside independently verified bottom copper', async ({ page }) => {
@@ -219,6 +235,12 @@ test('100,000 components keep the initial worker response small and export all f
   expect(initial.keys).toEqual(['html', 'summary']);
   expect(initial.bytes).toBeLessThan(12 * 1024);
 
+  const last = await lookup(page, 'p99995');
+  await expect(last.getByRole('heading', { name: 'P99995' })).toBeVisible();
+  await expect(last).toContainText('位置偏差 1 mm');
+  await expect(preview.locator('circle[data-focused="true"]')).toHaveCount(0);
+  expect(await page.evaluate(() => window.workerResponses[1].keys)).toEqual(['html', 'reference']);
+
   const report = JSON.parse(await download(page, '下载 JSON', 'moonplacement-report.json'));
   expect(report.status).toBe('different');
   expect(report.differences).toHaveLength(count);
@@ -226,8 +248,8 @@ test('100,000 components keep the initial worker response small and export all f
   const html = await download(page, '下载 HTML', 'moonplacement-report.html');
   expect(html.includes('<td>P99995</td>')).toBe(true);
   expect(html.includes('<h2>原始 JSON</h2>')).toBe(true);
-  expect(await page.evaluate(() => window.workerActions)).toEqual(['audit', 'export', 'export']);
-  const [, jsonFile, htmlFile] = await page.evaluate(() => window.workerResponses);
+  expect(await page.evaluate(() => window.workerActions)).toEqual(['audit', 'lookup', 'export', 'export']);
+  const [, , jsonFile, htmlFile] = await page.evaluate(() => window.workerResponses);
   expect(jsonFile.fileBytes).toBeGreaterThan(1024 * 1024);
   expect(htmlFile.fileBytes).toBeGreaterThan(1024 * 1024);
   console.log(`100,000 components: initial response ${initial.bytes} bytes; downloaded JSON ${jsonFile.fileBytes} bytes and HTML ${htmlFile.fileBytes} bytes`);

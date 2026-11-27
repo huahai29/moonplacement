@@ -43,6 +43,9 @@ for (const example of ['panel', 'register']) {
   put(`${example}/moon.pkg`, consumerPackage);
   put(`${example}/main.mbt`, readFileSync(`examples/library/${example}.mbt.example`, 'utf8'));
 }
+mkdirSync(join(work, 'cross-eda'));
+put('cross-eda/moon.pkg', consumerPackage);
+put('cross-eda/main.mbt', readFileSync('tests/cross-eda/main.mbt', 'utf8'));
 if (!local) call('add', `${mod}@${version}`);
 
 const backendReports = {};
@@ -73,8 +76,53 @@ for (const target of ['js', 'wasm-gc']) {
     difference: { ref: difference.ref, kind: difference.kind, distance_mm: difference.distance_mm },
     panel, registration };
 }
+const hardware = resolve('examples/hardware/antmicro-usb-c-power-adapter');
+const kicad = join(hardware, 'kicad-placement.csv');
+const easyeda = join(hardware, 'easyeda-pro-placement.csv');
+const policy = join(hardware, 'import-policy.json');
+const copper = join(hardware, 'usb-c-power-adapter-B_Cu.gbr');
+
+function shiftC17(path, columnIndex, original, shifted) {
+  const data = readFileSync(path, 'utf8');
+  const row = /^"C17",(.*)$/m.exec(data);
+  assert.ok(row, `Missing C17 in ${path}`);
+  // The pinned C17 rows have simple CSV fields. Verify the exact X field before editing.
+  const fields = row[0].split(',');
+  assert.equal(fields[columnIndex], original, `C17 X field changed in ${path}`);
+  fields[columnIndex] = shifted;
+  const filename = `shifted-${path === kicad ? 'kicad' : 'easyeda'}.csv`;
+  put(filename, data.slice(0, row.index) + fields.join(',') + data.slice(row.index + row[0].length));
+  return join(work, filename);
+}
+
+const crossEda = {};
+for (const [label, baseline, delivery] of [
+  ['original', kicad, easyeda],
+  ['c17_shifted', shiftC17(kicad, 3, '88.950000', '89.250000'),
+    shiftC17(easyeda, 5, '"88.95"', '"89.25"')],
+]) {
+  const report = JSON.parse(call('run', '--target', 'js', 'cross-eda', '--',
+    baseline, delivery, policy, copper));
+  const shifted = label === 'c17_shifted';
+  assert.equal(report.status, shifted ? 'different' : 'pass');
+  assert.deepEqual(report.differences, []);
+  assert.equal(report.pad_status, 'complete');
+  assert.equal(report.pad_checked, 44);
+  assert.deepEqual(report.pad_sides, ['bottom']);
+  const j1 = report.pad_evidence.find(item => item.ref === 'J1').evidence;
+  assert.equal(j1.origin.status, 'corrected');
+  assert.ok(j1.within_tolerance && Math.abs(j1.distance_mm) < 1e-9);
+  assert.deepEqual(report.pad_differences.map(({ ref, kind }) => [ref, kind]),
+    shifted ? [['C17', 'pad_offset']] : []);
+  const c17 = report.pad_evidence.find(item => item.ref === 'C17').evidence;
+  assert.equal(c17.within_tolerance, !shifted);
+  assert.ok(Math.abs(c17.distance_mm - (shifted ? 0.3 : 0)) < 1e-9);
+  crossEda[label] = { status: report.status, pad_checked: report.pad_checked,
+    j1_distance_mm: j1.distance_mm, c17_distance_mm: c17.distance_mm };
+}
+
 const evidence = { module: mod, version, source: local ? 'unpacked' : 'mooncakes',
   toolchain: call('version', '--all').split(/\r?\n/).find(line => line.startsWith('moonc '))?.split(' (')[0],
-  backends: backendReports };
+  backends: backendReports, cross_eda_js: crossEda };
 writeFileSync(join(parent, local ? 'unpacked.json' : 'mooncakes.json'), JSON.stringify(evidence, null, 2) + '\n');
-console.log(`${mod}@${version} (${evidence.source}): JS and Wasm-GC verified the D1 offset, panel evidence, and registration`);
+console.log(`${mod}@${version} (${evidence.source}): JS and Wasm-GC consumer examples passed; JS cross-EDA verified 44 bottom placements and the 0.30 mm C17 shift`);

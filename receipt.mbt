@@ -23,7 +23,7 @@ pub fn audit_receipt(
     "schema": Json("moonplacement.receipt.v1"),
     "producer": {
       "name": Json("MoonPlacement"),
-      "package_version": Json("0.2.0"),
+      "package_version": Json("0.3.0"),
       "host": Json(host),
       "build_sha256": Json(build_sha256),
     },

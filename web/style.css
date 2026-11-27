@@ -52,6 +52,14 @@ button:disabled { opacity: .6; cursor: wait; }
 .metrics div { padding: .55rem .75rem; background: #f3f7f8; border: 1px solid #d8e2e6; border-radius: 6px; }
 .metrics dt { font-size: .875rem; color: #435a66; }
 .metrics dd { margin: 0; font-size: 1.3rem; font-weight: 700; }
+.reference-form { margin: 14px 0; }
+.reference-form label { display: block; margin-bottom: .3rem; font-size: .9rem; font-weight: 650; }
+.reference-form div { display: flex; gap: .45rem; }
+.reference-form input { width: min(18rem, 100%); min-width: 0; border: 1px solid #b9ced7; border-radius: 6px; padding: .36rem .55rem; }
+.reference-form button { flex-shrink: 0; }
+.reference-result { background: #f3f7f8; border-radius: 6px; padding: .6rem .85rem; margin-bottom: 12px; overflow-wrap: anywhere; }
+.reference-result h3, .reference-result p { margin: 0 0 .25rem; }
+.reference-result ul { padding-left: 1.25rem; margin: 0; }
 iframe { width: 100%; height: 640px; background: #fff; border: 1px solid #d8e2e6; border-radius: 6px; }
 @media (max-width: 720px) {
   .shell { width: calc(100% - 24px); }

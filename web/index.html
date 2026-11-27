@@ -65,6 +65,14 @@
             <div><dt>铜层差异</dt><dd id="pad-count"></dd></div>
             <div><dt>按位号核验</dt><dd id="checked-count"></dd></div>
           </dl>
+          <form id="reference-form" class="reference-form" hidden>
+            <label for="reference-input">按位号查询</label>
+            <div>
+              <input id="reference-input" type="search" autocapitalize="characters" placeholder="例如 D1" required>
+              <button id="reference-submit" class="secondary" type="submit">查找</button>
+            </div>
+          </form>
+          <div id="reference-result" class="reference-result" aria-live="polite" hidden></div>
         </div>
         <iframe id="report-frame" title="MoonPlacement 离线报告预览" sandbox hidden></iframe>
       </section>
