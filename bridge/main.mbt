@@ -42,6 +42,7 @@ fn decode_fingerprints(text : String) -> Array[@mp.ReceiptInput] {
 
 ///|
 /// Browser adapter for the same public library routines used by the CLI.
+#export_name("audit_files")
 pub fn audit_files(
   baseline_csv : String,
   baseline_file : String,
@@ -109,9 +110,4 @@ pub fn audit_files(
       { "report": @mp.input_error_report(field, message) }
   }
   response.stringify()
-}
-
-///|
-fn main {
-
 }

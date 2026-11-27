@@ -3,9 +3,9 @@ import {
   "moonbitlang/core/json",
 }
 
-pkgtype(kind: "executable")
+pkgtype(kind: "foreign_library")
 
 options(
   supported_targets: "js",
-  link: { "js": { "exports": [ "audit_files" ], "format": "esm" } },
+  link: { "js": { "format": "esm" } },
 )

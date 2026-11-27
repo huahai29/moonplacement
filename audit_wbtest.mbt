@@ -417,7 +417,7 @@ test "reference rule overrides a footprint rule and mismatched pose requires rev
   assert_true(
     origin
     is Some(
-      { "status": String("corrected"), "matched_by": String("footprint"), .. }
+      { "status": String("corrected"), "matched_by": String("footprint"), .. },
     ),
   )
   let (overridden, origin) = apply_pad_origin(

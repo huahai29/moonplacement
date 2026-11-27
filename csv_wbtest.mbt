@@ -35,7 +35,7 @@ test "CSV reports physical lines for malformed quotes" {
   assert_true(
     result
     is Err(
-      InvalidInput("delivery", "第 2 行的闭引号后应为逗号或换行")
+      InvalidInput("delivery", "第 2 行的闭引号后应为逗号或换行"),
     ),
   )
 }

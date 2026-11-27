@@ -21,7 +21,7 @@ PCB 送厂前，用 MoonPlacement 对照设计坐标表和送厂坐标表，找�
 
 ## 安装并运行
 
-安装 [MoonBit](https://www.moonbitlang.com/download/) 和 Node.js 22.3 或更新版本。当前源码使用 `moonc v0.10.20+65efd5b93` 验证。不用安装 npm 依赖。
+安装 [MoonBit](https://www.moonbitlang.com/download/) 和 Node.js 22.3 或更新版本。当前源码使用 `moonc v1.0.0-rc1+3c0520448` 验证，可运行 `moon version --all` 查看本机版本。不用安装 npm 依赖。
 
 ```sh
 git clone https://github.com/huahai29/moonplacement.git
