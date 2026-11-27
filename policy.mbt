@@ -6,6 +6,25 @@ priv enum Units {
 }
 
 ///|
+fn Units::parse(text : String) -> Units? {
+  match text {
+    "mm" => Some(Millimetres)
+    "in" => Some(Inches)
+    "mil" => Some(Mils)
+    _ => None
+  }
+}
+
+///|
+fn Units::name(units : Units) -> String {
+  match units {
+    Millimetres => "mm"
+    Inches => "in"
+    Mils => "mil"
+  }
+}
+
+///|
 priv enum BottomX {
   Direct
   Negated
@@ -74,11 +93,8 @@ fn read_convention(
   field : String,
   allow_auto : Bool,
 ) -> FileConvention raise InputError {
-  let units = match raw.unit {
-    "mm" => Millimetres
-    "in" => Inches
-    "mil" => Mils
-    _ => raise InvalidInput("\{field}.unit", "使用 mm、in 或 mil")
+  guard Units::parse(raw.unit) is Some(units) else {
+    raise InvalidInput("\{field}.unit", "使用 mm、in 或 mil")
   }
   let bottom_x = match raw.bottom_x {
     "direct" => Direct
@@ -176,8 +192,19 @@ pub fn read_policy(input : String) -> Policy raise InputError {
   if input.length() > 65_536 {
     raise InvalidInput("policy", "配置文件超过 65536 字符单元")
   }
-  let document = @json.parse(input) catch {
-    error => raise InvalidInput("policy", "配置无法解析：\{error}")
+  let document = parse_policy_json(input)
+  let fields = policy_fields(document, "", [
+    "baseline", "delivery", "anchors", "rotation", "alignment", "position_tolerance_mm",
+    "angle_tolerance_deg", "anchor_tolerance_mm", "pad_tolerance_mm", "placement_import",
+    "pad_origins",
+  ])
+  for name in ["baseline", "delivery"] {
+    if fields.get(name) is Some(value) {
+      policy_fields(value, name, [
+        "unit", "bottom_x", "angle_sign", "top_angle_offset_deg", "bottom_angle_offset_deg",
+      ])
+      |> ignore
+    }
   }
   let raw : PolicyJson = @json.from_json(document) catch {
     error => raise InvalidInput("policy", "配置无法解析：\{error}")

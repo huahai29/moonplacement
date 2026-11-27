@@ -19,6 +19,37 @@ function run(args, expectedExit, nodeArgs = []) {
   return JSON.parse(result.stdout);
 }
 
+test('rejects duplicate and misnamed tolerances before judging a board', t => {
+  const work = mkdtempSync(join(tmpdir(), 'moonplacement-policy-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const input = join(work, 'policy.json');
+  const shifted = join(work, 'shifted.csv');
+  const copper = join(work, 'offset.gbr');
+  const settings = JSON.parse(readFileSync(policy, 'utf8'));
+  settings.delivery = settings.baseline;
+  const audit = (text, args, expectedExit) => {
+    writeFileSync(input, text);
+    return run([baseline, args[0], input, ...args.slice(1)], expectedExit);
+  };
+  writeFileSync(shifted, readFileSync(baseline, 'utf8').replace('U3,MCU,QFN-16,20,20', 'U3,MCU,QFN-16,21,20'));
+  const correctPose = audit(JSON.stringify(settings), [shifted], 1);
+  assert.deepEqual(correctPose.differences.map(({ ref, distance_mm }) => [ref, distance_mm]), [['U3', 1]]);
+  const duplicate = JSON.stringify(settings).replace(/}$/, ',"position_tolerance_mm":2}');
+  const duplicateError = audit(duplicate, [shifted], 64);
+  assert.equal(duplicateError.status, 'input_error');
+  assert.equal(duplicateError.field, 'position_tolerance_mm');
+  assert.match(duplicateError.message, /重复/);
+
+  writeFileSync(copper, readFileSync('examples/top-copper.gbr', 'utf8').replace('X24000000Y13000000', 'X24050000Y13000000'));
+  const correctPad = audit(JSON.stringify({ ...settings, pad_tolerance_mm: 0.04 }), [baseline, copper], 1);
+  assert.deepEqual(correctPad.pad_differences.map(({ ref }) => ref), ['D1']);
+  assert.ok(Math.abs(correctPad.pad_differences[0].distance_mm - 0.05) < 1e-9);
+  const typo = audit(JSON.stringify({ ...settings, pad_tolerence_mm: 0.04 }), [baseline, copper], 64);
+  assert.equal(typo.status, 'input_error');
+  assert.equal(typo.field, 'pad_tolerence_mm');
+  assert.match(typo.message, /未知配置项/);
+});
+
 test('placement profiles validate the chosen columns, literal prefix and scope', t => {
   const work = mkdtempSync(join(tmpdir(), 'moonplacement-import-'));
   t.after(() => rmSync(work, { recursive: true, force: true }));
@@ -289,6 +320,66 @@ test('normalizes inches, origin shift and bottom X', () => {
   assert.deepEqual(report.frame.anchor_residuals.map(({ ref }) => ref), report.anchors);
   assert.ok(report.frame.anchor_residuals.every(anchor => anchor.within_anchor_tolerance));
   assert.deepEqual(report.differences, []);
+});
+
+test('HTML markers and position arrows use the same millimetre frame as the audit', t => {
+  const work = mkdtempSync(join(tmpdir(), 'moonplacement-board-frame-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const settings = JSON.parse(readFileSync(policy, 'utf8'));
+  const board = [
+    ['R1', 0, 0, 'top'], ['R2', 20, 0, 'top'], ['R3', 10, 20, 'bottom'], ['U3', 10, 10, 'top'],
+  ];
+  function tables(unitScale, negate, shifted) {
+    return ['Ref,PosX,PosY,Rot,Side', ...board.map(([ref, x, y, side]) => {
+      const moved = ref === 'U3' && shifted;
+      const dx = moved ? 0.6 : 0;
+      const dy = moved ? -0.8 : 0;
+      const sign = negate && side === 'bottom' ? -1 : 1;
+      return [ref, ((x + dx) * sign / unitScale).toFixed(15), ((y + dy) / unitScale).toFixed(15), 0, side].join(',');
+    })].join('\n');
+  }
+  const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-8, `${actual} vs ${expected}`);
+  for (const [unit, scale, bottom_x] of [
+    ['mm', 1, 'direct'], ['in', 25.4, 'direct'], ['mil', 0.0254, 'direct'],
+    ['mm', 1, 'negated'], ['in', 25.4, 'negated'],
+  ]) {
+    const input = join(work, 'policy.json');
+    const base = join(work, 'baseline.csv');
+    const delivered = join(work, 'delivery.csv');
+    const html = join(work, `${unit}-${bottom_x}.html`);
+    const convention = { ...settings.baseline, unit, bottom_x };
+    writeFileSync(input, JSON.stringify({ ...settings, baseline: convention, delivery: convention,
+      anchors: ['R1', 'R2', 'R3'] }));
+    writeFileSync(base, tables(scale, bottom_x === 'negated', false));
+    writeFileSync(delivered, tables(scale, bottom_x === 'negated', true));
+    const report = run([base, delivered, input, '--html', html], 1);
+    assert.deepEqual(report.baseline_coordinates,
+      unit === 'mm' && bottom_x === 'direct' ? undefined : { unit, bottom_x });
+    const [finding] = report.differences;
+    assert.equal(report.differences.length, 1);
+    assert.equal(finding.ref, 'U3');
+    assert.equal(finding.kind, 'position');
+    close(finding.delta_x_mm, 0.6);
+    close(finding.delta_y_mm, -0.8);
+    close(finding.distance_mm, 1);
+
+    const svg = readFileSync(html, 'utf8').match(/<svg\b[\s\S]*?<\/svg>/)[0];
+    const markers = new Map([...svg.matchAll(/<circle cx="([^"]+)" cy="([^"]+)"[^>]*\/><text[^>]*>([^<]+)<\/text>/g)]
+      .map(([, x, y, ref]) => [ref, [Number(x), Number(y)]]));
+    assert.equal(markers.size, 4);
+    for (const [ref, x, y] of [['R1', 50, 430], ['R2', 430, 430], ['R3', 240, 50], ['U3', 240, 240]]) {
+      close(markers.get(ref)[0], x);
+      close(markers.get(ref)[1], y);
+    }
+    const arrows = [...svg.matchAll(/<line x1="([^"]+)" y1="([^"]+)" x2="([^"]+)" y2="([^"]+)"[^>]*marker-end="url\(#arrow\)"/g)];
+    assert.equal(arrows.length, 1);
+    const [x1, y1, x2, y2] = arrows[0].slice(1).map(Number);
+    close(x1, 240);
+    close(y1, 240);
+    close(x2 - x1, 11.4);
+    close(y2 - y1, 15.2);
+    close(Math.hypot(x2 - x1, y2 - y1), 19);
+  }
 });
 
 test('reports missing, wrong side, position, angle and extra designators', () => {

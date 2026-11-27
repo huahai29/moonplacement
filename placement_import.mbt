@@ -33,26 +33,9 @@ fn default_table_import() -> TableImport {
 }
 
 ///|
-fn import_fields(
-  value : Json,
-  field : String,
-  allowed : Array[String],
-) -> Map[String, Json] raise InputError {
-  guard value is Object(fields) else {
-    raise InvalidInput(field, "必须是对象")
-  }
-  for key in fields.keys() {
-    if !allowed.contains(key) {
-      raise InvalidInput(field + "." + key, "未知配置项")
-    }
-  }
-  fields
-}
-
-///|
 fn table_import(value : Json?, path : String) -> TableImport raise InputError {
   guard value is Some(document) else { return default_table_import() }
-  let fields = import_fields(document, path, ["coordinates", "footprint_prefix"])
+  let fields = policy_fields(document, path, ["coordinates", "footprint_prefix"])
   let coordinates = match fields.get("coordinates") {
     None | Some(String("auto")) => DefaultCoordinates
     Some(String("mid")) => Midpoint
@@ -103,7 +86,7 @@ fn read_placement_import(
   guard document is Object(root) && root.get("placement_import") is Some(value) else {
     return None
   }
-  let fields = import_fields(value, "placement_import", [
+  let fields = policy_fields(value, "placement_import", [
     "baseline", "delivery", "expected_refs", "exclude_refs",
   ])
   let scope = match (fields.get("expected_refs"), fields.get("exclude_refs")) {

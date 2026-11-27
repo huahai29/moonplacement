@@ -34,6 +34,42 @@ fn empty_report_board() -> PlacementTable raise InputError {
 }
 
 ///|
+test "library HTML uses the recorded baseline convention for bottom markers" {
+  let baseline = fixture_table(
+    "R1,0,0,0,top\nR2,2,0,0,top\nR3,-1,2,0,bottom\nU3,1,1,0,top",
+  )
+  let delivery = fixture_table(
+    "R1,0,0,0,top\nR2,2,0,0,top\nR3,-1,2,0,bottom\nU3,1.1,1,0,top",
+  )
+  let defaults = matching_policy()
+  let convention = { ..defaults.baseline, units: Inches, bottom_x: Negated, }
+  let result = audit(baseline, delivery, {
+    ..defaults,
+    baseline: convention,
+    delivery: convention,
+  })
+  assert_true(result.verdict is Different)
+  assert_true(
+    result.report
+    is {
+      "baseline_coordinates": {
+        "unit": String("in"),
+        "bottom_x": String("negated"),
+        ..
+      },
+      ..
+    },
+  )
+  let html = render_html(result.report, baseline)
+  assert_true(
+    html.contains(
+      "<circle cx=\"240\" cy=\"50\" r=\"5\" fill=\"#2f9e44\"/><text",
+    ),
+  )
+  assert_true(html.contains("<line x1=\"240\" y1=\"240\""))
+}
+
+///|
 test "empty board and unchanged large coordinates render a finite board map" {
   let empty = empty_report_board()
   let empty_html = render_html(

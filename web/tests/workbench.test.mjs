@@ -70,6 +70,22 @@ test('local files stay in the browser and invalid UTF-8 is reported', async ({ p
   await expect(page.getByRole('link', { name: '下载核验凭据' })).toBeHidden();
 });
 
+test('duplicate policy fields keep the workbench from showing an audit verdict', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#baseline').setInputFiles(example('baseline.csv'));
+  await page.locator('#delivery').setInputFiles(example('delivery-ok.csv'));
+  const original = await readFile(example('policy.json'), 'utf8');
+  const duplicate = original.trimEnd().replace(/}$/, ',"position_tolerance_mm":2}');
+  await page.locator('#policy').setInputFiles({
+    name: 'duplicate.json', mimeType: 'application/json', buffer: Buffer.from(duplicate),
+  });
+  await page.getByRole('button', { name: '开始核对' }).click();
+  await expect(page.getByRole('status')).toHaveText('输入有误');
+  await expect(page.locator('#result-detail')).toContainText('position_tolerance_mm · 配置项重复');
+  await expect(page.locator('#report-frame')).toBeHidden();
+  await expect(page.getByRole('link', { name: '下载 JSON' })).toBeHidden();
+});
+
 test('the original KiCad and EasyEDA exports use the uploaded placement profile', async ({ page }) => {
   const fixture = file => example(`hardware/antmicro-usb-c-power-adapter/${file}`);
   await page.goto('/');

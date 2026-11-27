@@ -22,6 +22,10 @@ fn read_pad_origins(document : Json) -> PadOrigins raise InputError {
   }
   for index, rule in rules {
     let field = "pad_origins[\{index}]"
+    policy_fields(rule, field, [
+      "ref", "footprint", "mode", "source", "side", "angle_deg", "dx_mm", "dy_mm",
+    ])
+    |> ignore
     let (key, rules) = match
       (json_get(rule, "ref"), json_get(rule, "footprint")) {
       (Some(String(refdes)), None) => (designator(refdes), refs)

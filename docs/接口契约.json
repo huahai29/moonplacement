@@ -99,6 +99,28 @@
         "delivery_count": {
           "type": "integer"
         },
+        "baseline_coordinates": {
+          "type": "object",
+          "required": [
+            "unit",
+            "bottom_x"
+          ],
+          "properties": {
+            "unit": {
+              "enum": [
+                "mm",
+                "in",
+                "mil"
+              ]
+            },
+            "bottom_x": {
+              "enum": [
+                "direct",
+                "negated"
+              ]
+            }
+          }
+        },
         "differences": {
           "type": "array",
           "items": {

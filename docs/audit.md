@@ -4,6 +4,8 @@
 
 两个 CSV 都应为 UTF-8，接受 BOM、引号转义和带换行的引用字段。关键列可以重排，额外列会跳过。位号忽略首尾空白和大小写，规范化后的重复位号会报错。每份 CSV 最多 8 MiB、100,000 个器件、256 列，配置最多 64 KiB。坐标和角度的原始数值范围为 ±1,000,000。
 
+配置 JSON 的任何对象都不得含重复键。未定义的配置项会报 `input_error`，例如把 `pad_tolerance_mm` 拼错时，报告的 `field` 会指出错拼字段。嵌套字段用 `baseline.unit` 或 `pad_origins[1].source` 这样的路径表示，数组下标从 0 开始。重复键还会指明第二次出现的行和列。
+
 | 配置 | 含义 |
 | --- | --- |
 | `baseline`、`delivery` | 各自填写 `unit`（`mm`、`in` 或 `mil`）及 `bottom_x`（`direct` 保留，`negated` 对底面 X 取反，送厂表还可填 `auto`） |
@@ -17,6 +19,7 @@
 | `angle_tolerance_deg` | 器件允许的最小圆周角差，大于 0 且不超过 180° |
 | `pad_tolerance_mm` | 可选，铜层质心与送厂坐标推算出的期望质心之间允许的距离，缺省 0.1 mm |
 | `pad_origins` | 可选，按位号或封装设置质心偏移或人工复查。见[封装原点校正](#封装原点校正) |
+| `placement_import` | 可选，指定 CSV 坐标口径、封装库前缀和贴装范围。见[跨工具导入口径](#跨工具导入口径) |
 
 底面 X 与角度约定分别配置。例如 KiCad 的底面 X 取反选项改动 X 坐标，角度仍按原角度字段导出。输入必须使用可换算的器件中心和角度零位。合并表应使用同一面板、同一版次及一致的 DNP 筛选规则。参见 [KiCad 位置文件导出](https://docs.kicad.org/9.0/en/cli/cli.html#pcb-export-position-file)和[嘉立创贴片文件说明](https://jlcpcb.com/help/article/pick-place-file-for-pcb-assembly)。
 
@@ -107,6 +110,7 @@ MoonBit 库可直接调用 `parse_gerber_cell(text, row=10, column=10, source="t
 
 ## JSON 报告 v3
 
+- `baseline_coordinates` 在基准表使用英寸、mil 或底面 X 取反时记录原始 `unit` 和 `bottom_x`。新报告省略此字段时表示以毫米计且保留底面 X。HTML 用它将器件标记和位置偏差箭头绘在同一毫米坐标系。旧报告若使用非默认口径，重新运行核对即可生成带口径信息的报告。
 - `status` 和 `reason` 表示结果及无法确认的原因。原因包括基准缺失或错面（`invalid_anchors`）、基准点接近共线（`degenerate_baseline_anchors`）、没有候选符合容差（`no_matching_frame`）、有多个候选（`ambiguous_frame`）、无独立核对点（`no_independent_components`）和铜层位号证据不足（`insufficient_pad_evidence`）。
 - `frame` 是唯一选中的变换，可能为空。包含 `rotation_deg`、`scale`、`delivery_bottom_x`、平移向量 `delivery_to_baseline_mm`、最大基准残差 `max_anchor_error_mm`。枚举模式下 `scale` 恒为 `1`，`rotation_deg` 为 90 的整数倍；注册引擎模式下两者都是连续估计值。
 - `candidate_frames` 列出通过基准检查的候选。`rejected_frames` 用 `anchor_tolerance_exceeded` 标记超出容差的候选，并附该候选的 `frame`。`degenerate_delivery_anchors` 表示该底面约定下的基准分布退化，此时只给出约定和原因。

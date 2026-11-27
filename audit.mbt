@@ -540,6 +540,19 @@ fn audit_impl(
       "pad_mm": Json(policy.pad_mm),
     },
   }
+  let baseline_bottom_negated = policy.baseline.bottom_x is Negated
+  if !(policy.baseline.units is Millimetres) || baseline_bottom_negated {
+    report["baseline_coordinates"] = {
+      "unit": Json(policy.baseline.units.name()),
+      "bottom_x": Json(
+        if baseline_bottom_negated {
+          "negated"
+        } else {
+          "direct"
+        },
+      ),
+    }
+  }
   if policy.placement_import is Some(_) {
     report["placement_import"] = {
       "scope": Json(scope.label()),

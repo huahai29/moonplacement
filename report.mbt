@@ -182,8 +182,8 @@ fn import_html(report : Json) -> String {
 }
 
 ///|
-/// Render a self-contained HTML report. The board map uses the trusted baseline
-/// positions and draws a red arrow for every reported position offset.
+/// Render a self-contained HTML report. Baseline positions are normalized using
+/// the report's coordinate convention before plotting position offsets.
 pub fn render_html(report : Json, baseline : PlacementTable) -> String {
   let status = json_string(report, "status")
   let reason = json_string(report, "reason")
@@ -227,15 +227,25 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
   } else {
     scoped_rows(baseline.rows, Excluded(excluded)).0
   }
+  let (units, negate_bottom_x) = match
+    json_get(report, "baseline_coordinates") {
+    Some(coordinates) =>
+      (
+        Units::parse(json_string(coordinates, "unit")).unwrap_or(Millimetres),
+        json_string(coordinates, "bottom_x") == "negated",
+      )
+    None => (Millimetres, false)
+  }
   let mut min_x = 1.0e9
   let mut max_x = -1.0e9
   let mut min_y = 1.0e9
   let mut max_y = -1.0e9
   for part in rows.values() {
-    min_x = min_x.min(part.xy.x)
-    max_x = max_x.max(part.xy.x)
-    min_y = min_y.min(part.xy.y)
-    max_y = max_y.max(part.xy.y)
+    let point = position(part, units, negate_bottom_x)
+    min_x = min_x.min(point.x)
+    max_x = max_x.max(point.x)
+    min_y = min_y.min(point.y)
+    max_y = max_y.max(point.y)
   }
   if min_x > max_x {
     min_x = 0.0
@@ -262,8 +272,9 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
     "<rect x=\"0\" y=\"0\" width=\"640\" height=\"480\" fill=\"#fafafa\" stroke=\"#dddddd\"/>",
   )
   for part in rows.values() {
-    let cx = padding + (part.xy.x - min_x) * scale
-    let cy = height - padding - (part.xy.y - min_y) * scale
+    let point = position(part, units, negate_bottom_x)
+    let cx = padding + (point.x - min_x) * scale
+    let cy = height - padding - (point.y - min_y) * scale
     let color = marker_color(part.refdes, problems, pads)
     svg.write_string(
       "<circle cx=\"\{cx}\" cy=\"\{cy}\" r=\"5\" fill=\"\{color}\"/>",
@@ -279,10 +290,11 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
         Some(part) => {
           let dx = json_double(item, "delta_x_mm")
           let dy = json_double(item, "delta_y_mm")
-          let x1 = padding + (part.xy.x - min_x) * scale
-          let y1 = height - padding - (part.xy.y - min_y) * scale
-          let x2 = padding + (part.xy.x + dx - min_x) * scale
-          let y2 = height - padding - (part.xy.y + dy - min_y) * scale
+          let point = position(part, units, negate_bottom_x)
+          let x1 = padding + (point.x - min_x) * scale
+          let y1 = height - padding - (point.y - min_y) * scale
+          let x2 = x1 + dx * scale
+          let y2 = y1 - dy * scale
           svg.write_string(
             "<line x1=\"\{x1}\" y1=\"\{y1}\" x2=\"\{x2}\" y2=\"\{y2}\" stroke=\"#d22b2b\" stroke-width=\"1.5\" marker-end=\"url(#arrow)\"/>",
           )

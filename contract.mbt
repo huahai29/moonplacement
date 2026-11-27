@@ -153,6 +153,10 @@ pub fn report_contract() -> Json {
     "anchor_issues": contract_items(reference_kind),
     "baseline_count": integer,
     "delivery_count": integer,
+    "baseline_coordinates": contract_object({
+      "unit": contract_enum(["mm", "in", "mil"]),
+      "bottom_x": contract_enum(["direct", "negated"]),
+    }),
     "differences": contract_items(reference_kind),
     "pad_differences": contract_items(pad_difference),
     "pad_checked": integer,
@@ -180,7 +184,7 @@ pub fn report_contract() -> Json {
     }),
   }
   let audit = contract_object(audit_properties, optional=[
-    "placement_import", "pad_layers",
+    "baseline_coordinates", "placement_import", "pad_layers",
   ])
   let input_error = contract_object({
     "schema_version": schema_version,
