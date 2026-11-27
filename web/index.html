@@ -50,14 +50,16 @@
         <div class="result-title">
           <h2 id="result-title">核对结果</h2>
           <div class="downloads" id="downloads" hidden>
-            <a id="download-json" download="moonplacement-report.json">下载 JSON</a>
-            <a id="download-html" download="moonplacement-report.html">下载 HTML</a>
-            <a id="download-receipt" download="moonplacement-receipt.json" hidden>下载核验凭据</a>
+            <button id="download-json" type="button">下载 JSON</button>
+            <button id="download-html" type="button">下载 HTML</button>
+            <button id="download-receipt" type="button" hidden>下载核验凭据</button>
           </div>
         </div>
         <div class="result-body">
           <p id="result-state" role="status" data-kind="idle">选择文件开始核对，或先运行 D1 示例。</p>
           <p id="result-detail" hidden></p>
+          <p id="export-notice" aria-live="polite" hidden></p>
+          <p id="preview-notice" hidden></p>
           <dl id="metrics" class="metrics" hidden>
             <div><dt>坐标表差异</dt><dd id="table-count"></dd></div>
             <div><dt>铜层差异</dt><dd id="pad-count"></dd></div>

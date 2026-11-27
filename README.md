@@ -15,7 +15,7 @@ PCB 送厂前，用 MoonPlacement 对照设计坐标表和送厂坐标表，找�
 
 [离线 HTML 报告](docs/demo/panel-d1.html)可从 GitHub 下载原文件后用浏览器打开。[复现命令](#复现报告)
 
-[打开在线工作台](https://huahai29.github.io/moonplacement/)可直接运行 D1 示例或选择自己的文件。核对在浏览器中执行，可下载 JSON、离线 HTML 和[核验凭据](docs/receipt.md)。
+[打开在线工作台](https://huahai29.github.io/moonplacement/)可直接运行 D1 示例或选择自己的文件。核对在浏览器中执行。页面显示完整计数和有限预览，点击下载时才生成完整 JSON、离线 HTML 或[核验凭据](docs/receipt.md)。
 
 ![MoonPlacement 离线报告显示第 2 行第 2 列的 D1 铜层偏差](docs/demo/panel-d1.png)
 

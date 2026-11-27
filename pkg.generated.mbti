@@ -54,6 +54,8 @@ pub fn register(Array[Point], Array[Point], TransformModel, Double) -> Registrat
 
 pub fn render_html(@json.Json, PlacementTable) -> String
 
+pub fn render_html_preview(@json.Json, PlacementTable) -> String
+
 pub fn report_contract() -> @json.Json
 
 pub fn select_panel_cell(GerberDocument, row~ : Int32, column~ : Int32, source~ : String, reference? : GerberDocument) -> GerberDocument raise GerberError

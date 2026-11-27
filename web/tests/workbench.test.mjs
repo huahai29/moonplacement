@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 const example = path => resolve('../examples', path);
 
 async function download(page, label, filename) {
-  const [file] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: label }).click()]);
+  const [file] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: label }).click()]);
   expect(file.suggestedFilename()).toBe(filename);
   return readFile(await file.path(), 'utf8');
 }
@@ -28,6 +28,7 @@ test('D1 sample downloads both report formats and a receipt for the same audit',
   const html = await download(page, '下载 HTML', 'moonplacement-report.html');
   expect(html).toContain('<meta charset="utf-8">');
   expect(html).toContain('第 2 行，第 2 列');
+  expect(html).toContain('<h2>原始 JSON</h2>');
 
   const receipt = JSON.parse(await download(page, '下载核验凭据', 'moonplacement-receipt.json'));
   const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -66,8 +67,8 @@ test('local files stay in the browser and invalid UTF-8 is reported', async ({ p
   await page.getByRole('button', { name: '开始核对' }).click();
   await expect(page.getByRole('status')).toHaveText('无法完成核对');
   await expect(page.locator('#result-detail')).toHaveText('坏文件.csv 不是有效的 UTF-8 文件。');
-  await expect(page.getByRole('link', { name: '下载 JSON' })).toBeHidden();
-  await expect(page.getByRole('link', { name: '下载核验凭据' })).toBeHidden();
+  await expect(page.getByRole('button', { name: '下载 JSON' })).toBeHidden();
+  await expect(page.getByRole('button', { name: '下载核验凭据' })).toBeHidden();
 });
 
 test('duplicate policy fields keep the workbench from showing an audit verdict', async ({ page }) => {
@@ -83,7 +84,7 @@ test('duplicate policy fields keep the workbench from showing an audit verdict',
   await expect(page.getByRole('status')).toHaveText('输入有误');
   await expect(page.locator('#result-detail')).toContainText('position_tolerance_mm · 配置项重复');
   await expect(page.locator('#report-frame')).toBeHidden();
-  await expect(page.getByRole('link', { name: '下载 JSON' })).toBeHidden();
+  await expect(page.getByRole('button', { name: '下载 JSON' })).toBeHidden();
 });
 
 test('the original KiCad and EasyEDA exports use the uploaded placement profile', async ({ page }) => {
@@ -164,9 +165,72 @@ test('an unavailable digest leaves the ordinary reports usable', async ({ page }
   await page.goto('/');
   await page.getByRole('button', { name: '运行 D1 示例' }).click();
   await expect(page.getByRole('status')).toHaveText('发现差异');
-  await expect(page.getByRole('link', { name: '下载 JSON' })).toBeVisible();
-  await expect(page.getByRole('link', { name: '下载 HTML' })).toBeVisible();
-  await expect(page.getByRole('link', { name: '下载核验凭据' })).toBeHidden();
+  await expect(page.getByRole('button', { name: '下载 JSON' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '下载 HTML' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '下载核验凭据' })).toBeHidden();
+});
+
+test('100,000 components keep the initial worker response small and export all findings on demand', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.addInitScript(() => {
+    const BrowserWorker = window.Worker;
+    window.workerActions = [];
+    window.workerResponses = [];
+    window.Worker = class extends BrowserWorker {
+      constructor(...args) {
+        super(...args);
+        this.addEventListener('message', ({ data }) => {
+          window.workerResponses.push(data.file ? { fileBytes: data.file.size }
+            : { bytes: new Blob([JSON.stringify(data)]).size, keys: Object.keys(data).sort() });
+        });
+      }
+      postMessage(message) {
+        window.workerActions.push(message.action);
+        super.postMessage(message);
+      }
+    };
+  });
+  await page.goto('/');
+  const anchors = ['Ref,PosX,PosY,Rot,Side', 'R1,0,0,0,top', 'C1,20,0,0,top',
+    'R2,0,20,0,top', 'R3,20,20,0,bottom'];
+  const count = 99_996;
+  for (const [id, x] of [['baseline', 10], ['delivery', 11]]) {
+    const lines = [...anchors];
+    for (let i = 0; i < count; i++) {
+      lines.push(`P${String(i).padStart(5, '0')},${x},10,0,top`);
+    }
+    await page.locator(`#${id}`).setInputFiles({ name: `${id}.csv`, mimeType: 'text/csv',
+      buffer: Buffer.from(lines.join('\n')) });
+  }
+  const settings = JSON.parse(await readFile(example('policy.json'), 'utf8'));
+  settings.delivery = settings.baseline;
+  await page.locator('#policy').setInputFiles({ name: 'policy.json', mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(settings)) });
+  await page.getByRole('button', { name: '开始核对' }).click();
+  await expect(page.getByRole('status')).toHaveText('发现差异', { timeout: 32_000 });
+  await expect(page.locator('#table-count')).toHaveText(String(count));
+  const preview = page.frameLocator('#report-frame');
+  await expect(preview.getByText('仅显示前 32 项（共 99996 项）。')).toBeVisible();
+  await expect(preview.getByText('板图含 100000 个器件。下载 HTML 查看完整板图。')).toBeVisible();
+  await expect(preview.getByRole('row')).toHaveCount(33);
+  await expect(preview.getByRole('heading', { name: '原始 JSON' })).toHaveCount(0);
+  expect(await page.evaluate(() => window.workerActions)).toEqual(['audit']);
+  const [initial] = await page.evaluate(() => window.workerResponses);
+  expect(initial.keys).toEqual(['html', 'summary']);
+  expect(initial.bytes).toBeLessThan(12 * 1024);
+
+  const report = JSON.parse(await download(page, '下载 JSON', 'moonplacement-report.json'));
+  expect(report.status).toBe('different');
+  expect(report.differences).toHaveLength(count);
+  expect(report.differences.at(-1)).toMatchObject({ ref: 'P99995', distance_mm: 1 });
+  const html = await download(page, '下载 HTML', 'moonplacement-report.html');
+  expect(html.includes('<td>P99995</td>')).toBe(true);
+  expect(html.includes('<h2>原始 JSON</h2>')).toBe(true);
+  expect(await page.evaluate(() => window.workerActions)).toEqual(['audit', 'export', 'export']);
+  const [, jsonFile, htmlFile] = await page.evaluate(() => window.workerResponses);
+  expect(jsonFile.fileBytes).toBeGreaterThan(1024 * 1024);
+  expect(htmlFile.fileBytes).toBeGreaterThan(1024 * 1024);
+  console.log(`100,000 components: initial response ${initial.bytes} bytes; downloaded JSON ${jsonFile.fileBytes} bytes and HTML ${htmlFile.fileBytes} bytes`);
 });
 
 test('mobile panel selection shows the Gerber error and clears a stale result', async ({ page }) => {

@@ -36,7 +36,12 @@ fn json_array(value : Json, key : String) -> Array[Json] {
 }
 
 ///|
-fn escape_html(text : String) -> String {
+fn escape_html(text : String, preview~ : Bool = false) -> String {
+  let text = if preview && text.length() > 80 {
+    text.clamped_view(end=80).to_owned() + "…"
+  } else {
+    text
+  }
   let builder = StringBuilder()
   for _, ch in text.iter2() {
     match ch {
@@ -52,7 +57,7 @@ fn escape_html(text : String) -> String {
 }
 
 ///|
-fn clearance_description(evidence : Json) -> String {
+fn clearance_description(evidence : Json, preview~ : Bool = false) -> String {
   let description = "焊盘可能受后绘制的清除对象影响"
   guard json_get(evidence, "clearance") is Some(clearance) &&
     json_get(clearance, "pad") is Some(pad) &&
@@ -70,16 +75,20 @@ fn clearance_description(evidence : Json) -> String {
   let label = if pin.is_empty() {
     "焊盘"
   } else {
-    "引脚 " + escape_html(pin)
+    "引脚 " + escape_html(pin, preview~)
   }
   let location = "(\{json_double(pad, "x_mm")}, \{json_double(pad, "y_mm")}) mm"
   "\{description}。\{label} 中心 \{location}；清除\{kind} #\{json_int(object, "object_number")}（Gerber 命令 #\{json_int(object, "statement_number")}）。"
 }
 
 ///|
-fn pad_origin_description(evidence : Json, origin : Json) -> String {
+fn pad_origin_description(
+  evidence : Json,
+  origin : Json,
+  preview : Bool,
+) -> String {
   let raw = @math.round(json_double(origin, "raw_distance_mm") * 1.0e6) / 1.0e6
-  let source = escape_html(json_string(origin, "source"))
+  let source = escape_html(json_string(origin, "source"), preview~)
   match json_string(origin, "status") {
     "corrected" => {
       let corrected = @math.round(json_double(evidence, "distance_mm") * 1.0e6) /
@@ -108,28 +117,50 @@ fn marker_color(
 }
 
 ///|
-fn difference_detail(item : Json) -> String {
+fn difference_detail(item : Json, preview : Bool) -> String {
   match json_string(item, "kind") {
     "position" | "pad_offset" =>
       "<span>距离 \{json_double(item, "distance_mm")} mm</span>"
     "angle" => "<span>角度差 \{json_double(item, "delta_deg")}°</span>"
-    "side" =>
-      "<span>基准 \{escape_html(json_string(item, "baseline"))} / 送厂 \{escape_html(json_string(item, "delivery"))}</span>"
-    "value" | "package" =>
-      "<span>基准 \{escape_html(json_string(item, "baseline"))} / 送厂 \{escape_html(json_string(item, "delivery"))}</span>"
+    "side" | "value" | "package" =>
+      "<span>基准 \{escape_html(json_string(item, "baseline"), preview~)} / 送厂 \{escape_html(json_string(item, "delivery"), preview~)}</span>"
     _ => "—"
   }
 }
 
 ///|
-fn difference_row(item : Json) -> String {
-  let reference = escape_html(json_string(item, "ref"))
-  let kind = escape_html(json_string(item, "kind"))
-  "<tr><td>\{reference}</td><td>\{kind}</td><td>\{difference_detail(item)}</td></tr>"
+fn difference_row(item : Json, preview : Bool) -> String {
+  let reference = escape_html(json_string(item, "ref"), preview~)
+  let kind = escape_html(json_string(item, "kind"), preview~)
+  "<tr><td>\{reference}</td><td>\{kind}</td><td>\{difference_detail(item, preview)}</td></tr>"
 }
 
 ///|
-fn differences_table(items : Array[Json]) -> String {
+const PREVIEW_DETAIL_LIMIT : Int32 = 32
+
+///|
+const PREVIEW_MARKER_LIMIT : Int32 = 160
+
+///|
+fn detail_limit(count : Int32, preview : Bool) -> Int32 {
+  if preview {
+    count.min(PREVIEW_DETAIL_LIMIT)
+  } else {
+    count
+  }
+}
+
+///|
+fn preview_count(shown : Int32, total : Int32) -> String {
+  if shown == total {
+    ""
+  } else {
+    "<p>仅显示前 \{shown} 项（共 \{total} 项）。</p>"
+  }
+}
+
+///|
+fn differences_table(items : Array[Json], preview : Bool) -> String {
   if items.length() == 0 {
     return "<p>无</p>"
   }
@@ -137,15 +168,17 @@ fn differences_table(items : Array[Json]) -> String {
   builder.write_string(
     "<table><tr><th>位号</th><th>类型</th><th>详情</th></tr>",
   )
-  for item in items {
-    builder.write_string(difference_row(item))
+  let shown = detail_limit(items.length(), preview)
+  for index in 0..<shown {
+    builder.write_string(difference_row(items[index], preview))
   }
   builder.write_string("</table>")
+  builder.write_string(preview_count(shown, items.length()))
   builder.to_string()
 }
 
 ///|
-fn import_html(report : Json) -> String {
+fn import_html(report : Json, preview : Bool) -> String {
   guard json_get(report, "placement_import") is Some(settings) else {
     return ""
   }
@@ -158,23 +191,33 @@ fn import_html(report : Json) -> String {
   html.write_string("<h2>导入口径</h2><p>贴装范围：\{scope}</p><ul>")
   for (key, label) in [("baseline", "基准表"), ("delivery", "送厂表")] {
     guard json_get(settings, key) is Some(table) else { continue }
-    let x = escape_html(json_string(table, "x_column"))
-    let y = escape_html(json_string(table, "y_column"))
-    let prefix = escape_html(json_string(table, "footprint_prefix"))
-    let omitted = json_array(table, "excluded_refs").filter_map(item => {
-      match item {
-        String(reference) => Some(escape_html(reference))
-        _ => None
-      }
-    })
+    let x = escape_html(json_string(table, "x_column"), preview~)
+    let y = escape_html(json_string(table, "y_column"), preview~)
+    let prefix = escape_html(json_string(table, "footprint_prefix"), preview~)
+    let excluded = json_array(table, "excluded_refs")
+    let shown = detail_limit(excluded.length(), preview)
+    let omitted = excluded[:shown]
+      .iter()
+      .filter_map(item => {
+        match item {
+          String(reference) => Some(escape_html(reference, preview~))
+          _ => None
+        }
+      })
+      .collect()
     let prefix_label = if prefix.is_empty() { "无" } else { prefix }
     let omitted_label = if omitted.is_empty() {
       "无"
     } else {
       omitted.join("、")
     }
+    let count = if shown < excluded.length() {
+      "（共 \{excluded.length()} 个）"
+    } else {
+      ""
+    }
     html.write_string(
-      "<li>\{label}：坐标列 \{x} / \{y} · 库前缀规则 \{prefix_label} · 未核对位号 \{omitted_label}</li>",
+      "<li>\{label}：坐标列 \{x} / \{y} · 库前缀规则 \{prefix_label} · 未核对位号 \{omitted_label}\{count}</li>",
     )
   }
   html.write_string("</ul>")
@@ -182,36 +225,16 @@ fn import_html(report : Json) -> String {
 }
 
 ///|
-/// Render a self-contained HTML report. Baseline positions are normalized using
-/// the report's coordinate convention before plotting position offsets.
-pub fn render_html(report : Json, baseline : PlacementTable) -> String {
-  let status = json_string(report, "status")
-  let reason = json_string(report, "reason")
-  let differences = json_array(report, "differences")
-  let pad_differences = json_array(report, "pad_differences")
-  let pad_evidence = json_array(report, "pad_evidence")
-  let pad_layers = json_array(report, "pad_layers")
-  let failed_layer = pad_layers
-    .iter()
-    .any(layer => json_string(layer, "status") == "failed")
-  let pad_state = match json_string(report, "pad_status") {
-    "complete" => "已取得全部位号证据"
-    "incomplete" if failed_layer => "部分铜层未完成核验"
-    "incomplete" => "部分器件的铜层证据需复查"
-    "skipped" if reason == "invalid_gerber_layer" =>
-      "Gerber 板面或用途不符，未核验"
-    "skipped" if reason == "incomplete_gerber_layers" =>
-      "铜层输入有误，未核验"
-    "skipped" => "未能对齐，未核验"
-    _ => "未提供铜层"
-  }
-  let problems : Map[String, Bool] = Map([])
-  for item in differences {
-    problems[json_string(item, "ref")] = true
-  }
-  let pads : Map[String, Bool] = Map([])
-  for item in pad_differences {
-    pads[json_string(item, "ref")] = true
+fn report_board(
+  report : Json,
+  baseline : PlacementTable,
+  differences : Array[Json],
+  pad_differences : Array[Json],
+  preview : Bool,
+) -> String {
+  let count = json_int(report, "baseline_count")
+  if preview && count > PREVIEW_MARKER_LIMIT {
+    return "<p>板图含 \{count} 个器件。下载 HTML 查看完整板图。</p>"
   }
   let excluded : Map[String, Bool] = Map([])
   if json_get(report, "placement_import") is Some(settings) &&
@@ -226,6 +249,20 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
     baseline.rows
   } else {
     scoped_rows(baseline.rows, Excluded(excluded)).0
+  }
+  let problems : Map[String, Bool] = Map([])
+  for item in differences {
+    let reference = json_string(item, "ref")
+    if !preview || rows.contains(reference) {
+      problems[reference] = true
+    }
+  }
+  let pads : Map[String, Bool] = Map([])
+  for item in pad_differences {
+    let reference = json_string(item, "ref")
+    if !preview || rows.contains(reference) {
+      pads[reference] = true
+    }
   }
   let (units, negate_bottom_x) = match
     json_get(report, "baseline_coordinates") {
@@ -280,10 +317,11 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
       "<circle cx=\"\{cx}\" cy=\"\{cy}\" r=\"5\" fill=\"\{color}\"/>",
     )
     svg.write_string(
-      "<text x=\"\{cx + 8.0}\" y=\"\{cy + 4.0}\" font-size=\"10\" fill=\"#333333\">\{escape_html(part.refdes)}</text>",
+      "<text x=\"\{cx + 8.0}\" y=\"\{cy + 4.0}\" font-size=\"10\" fill=\"#333333\">\{escape_html(part.refdes, preview~)}</text>",
     )
   }
-  for item in differences {
+  for index in 0..<detail_limit(differences.length(), preview) {
+    let item = differences[index]
     if json_string(item, "kind") == "position" {
       let reference = json_string(item, "ref")
       match rows.get(reference) {
@@ -304,6 +342,51 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
     }
   }
   svg.write_string("</svg>")
+  svg.write_string(
+    "<p style=\"font-size:12px;color:#666\">绿：一致，红：器件差异，橙：铜层差异；红箭头表示位置偏差。</p>",
+  )
+  svg.to_string()
+}
+
+///|
+/// Render a self-contained HTML report. Baseline positions are normalized using
+/// the report's coordinate convention before plotting position offsets.
+pub fn render_html(report : Json, baseline : PlacementTable) -> String {
+  render_report(report, baseline, preview=false)
+}
+
+///|
+/// Render a bounded online preview with optional detail and board omissions.
+pub fn render_html_preview(report : Json, baseline : PlacementTable) -> String {
+  render_report(report, baseline, preview=true)
+}
+
+///|
+fn render_report(
+  report : Json,
+  baseline : PlacementTable,
+  preview~ : Bool,
+) -> String {
+  let status = json_string(report, "status")
+  let reason = json_string(report, "reason")
+  let differences = json_array(report, "differences")
+  let pad_differences = json_array(report, "pad_differences")
+  let pad_evidence = json_array(report, "pad_evidence")
+  let pad_layers = json_array(report, "pad_layers")
+  let failed_layer = pad_layers
+    .iter()
+    .any(layer => json_string(layer, "status") == "failed")
+  let pad_state = match json_string(report, "pad_status") {
+    "complete" => "已取得全部位号证据"
+    "incomplete" if failed_layer => "部分铜层未完成核验"
+    "incomplete" => "部分器件的铜层证据需复查"
+    "skipped" if reason == "invalid_gerber_layer" =>
+      "Gerber 板面或用途不符，未核验"
+    "skipped" if reason == "incomplete_gerber_layers" =>
+      "铜层输入有误，未核验"
+    "skipped" => "未能对齐，未核验"
+    _ => "未提供铜层"
+  }
   let reason_text = if reason.is_empty() {
     ""
   } else {
@@ -324,13 +407,17 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
   html.write_string(
     "<p>基准器件 \{json_int(report, "baseline_count")} 个 · 送厂器件 \{json_int(report, "delivery_count")} 个</p>",
   )
-  html.write_string(import_html(report))
-  html.write_string(svg.to_string())
+  if preview {
+    html.write_string(
+      "<p>在线预览。下载报告可查看完整明细和原始 JSON。</p>",
+    )
+  }
+  html.write_string(import_html(report, preview))
   html.write_string(
-    "<p style=\"font-size:12px;color:#666\">绿：一致，红：器件差异，橙：铜层差异；红箭头表示位置偏差。</p>",
+    report_board(report, baseline, differences, pad_differences, preview),
   )
   html.write_string("<h2>器件差异</h2>")
-  html.write_string(differences_table(differences))
+  html.write_string(differences_table(differences, preview))
   html.write_string("<h2>铜层核对</h2>")
   if !pad_layers.is_empty() {
     html.write_string("<ul>")
@@ -342,7 +429,8 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
       }
       let text = match json_string(layer, "status") {
         "failed" =>
-          "核验失败 · " + escape_html(json_string(layer, "message"))
+          "核验失败 · " +
+          escape_html(json_string(layer, "message"), preview~)
         "skipped" => "无法完成配准，未核验"
         "complete" => "已核验全部位号"
         _ => "部分位号缺少证据"
@@ -370,28 +458,37 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
   html.write_string(
     "<p>\{pad_state}：按位号核验 \{json_int(report, "pad_checked")} / \{pad_evidence.length()}。</p>",
   )
-  html.write_string(differences_table(pad_differences))
-  let mut listed_evidence = false
+  html.write_string(differences_table(pad_differences, preview))
+  let mut listed_evidence = 0
+  let mut review_count = 0
   for item in pad_evidence {
     if json_get(item, "evidence") is Some(evidence) {
-      let description = match
-        (json_get(evidence, "origin"), json_string(evidence, "status")) {
-        (Some(origin), _) => pad_origin_description(evidence, origin)
+      let status = json_string(evidence, "status")
+      let origin = json_get(evidence, "origin")
+      if origin is None && status != "unverified" && status != "copper_only" {
+        continue
+      }
+      review_count += 1
+      if preview && listed_evidence == PREVIEW_DETAIL_LIMIT {
+        continue
+      }
+      let description = match (origin, status) {
+        (Some(origin), _) => pad_origin_description(evidence, origin, preview)
         (_, "copper_only") => "附近有铜，位号归属未知"
         (_, "unverified") =>
           match json_string(evidence, "reason") {
             "repeated_reference" =>
               "拼板中位号重复，请按单元拆分后核验"
-            "possible_clearance" => clearance_description(evidence)
+            "possible_clearance" => clearance_description(evidence, preview~)
             _ => "缺少可用的焊盘证据"
           }
         _ => continue
       }
-      if !listed_evidence {
+      if listed_evidence == 0 {
         html.write_string("<ul>")
-        listed_evidence = true
       }
-      let reference = escape_html(json_string(item, "ref"))
+      listed_evidence += 1
+      let reference = escape_html(json_string(item, "ref"), preview~)
       let side = if json_string(item, "side") == "top" {
         "顶面"
       } else {
@@ -400,11 +497,14 @@ pub fn render_html(report : Json, baseline : PlacementTable) -> String {
       html.write_string("<li>\{reference}（\{side}）：\{description}</li>")
     }
   }
-  if listed_evidence {
+  if listed_evidence > 0 {
     html.write_string("</ul>")
+    html.write_string(preview_count(listed_evidence, review_count))
   }
-  html.write_string("<h2>原始 JSON</h2>")
-  html.write_string("<pre>\{escape_html(report.stringify(indent=2))}</pre>")
+  if !preview {
+    html.write_string("<h2>原始 JSON</h2>")
+    html.write_string("<pre>\{escape_html(report.stringify(indent=2))}</pre>")
+  }
   html.write_string("</body></html>")
   html.to_string()
 }

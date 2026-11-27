@@ -7,11 +7,19 @@ const detail = byId('result-detail');
 const metrics = byId('metrics');
 const downloads = byId('downloads');
 const frame = byId('report-frame');
+const exportNotice = byId('export-notice');
+const previewNotice = byId('preview-notice');
 const cell = byId('use-cell');
 const row = byId('row');
 const column = byId('column');
 const empty = { name: '', text: '' };
 const textDecoder = new TextDecoder('utf-8', { fatal: true });
+const exportNames = {
+  json: 'moonplacement-report.json',
+  html: 'moonplacement-report.html',
+  receipt: 'moonplacement-receipt.json',
+};
+let auditWorker;
 const resultLabels = {
   pass: '核对通过',
   different: '发现差异',
@@ -80,20 +88,16 @@ async function files(useDemo) {
     row: cell.checked ? row.valueAsNumber : 0, column: cell.checked ? column.valueAsNumber : 0 };
 }
 
-function calculate(input) {
+function askWorker(message, timeoutMessage) {
+  const worker = auditWorker;
   return new Promise((resolve, reject) => {
-    if (typeof Worker !== 'function') {
-      reject(new Error('此浏览器无法在后台运行核对。请使用当前版本的浏览器或命令行。'));
-      return;
-    }
-    const worker = new Worker(new URL('./worker.mjs', import.meta.url), { type: 'module' });
     const cleanup = () => {
       clearTimeout(timer);
-      worker.terminate();
+      worker.onmessage = worker.onerror = worker.onmessageerror = null;
     };
     const timer = setTimeout(() => {
       cleanup();
-      reject(new Error('核对超过 30 秒。可尝试只核对一个拼板单元，或使用命令行。'));
+      reject(new Error(timeoutMessage));
     }, 30_000);
     worker.onmessage = ({ data }) => {
       cleanup();
@@ -104,7 +108,11 @@ function calculate(input) {
       cleanup();
       reject(new Error('后台核对程序无法运行，请刷新后重试。'));
     };
-    worker.postMessage(input);
+    try { worker.postMessage(message); }
+    catch (error) {
+      cleanup();
+      reject(error);
+    }
   });
 }
 
@@ -115,42 +123,67 @@ function setState(kind, message, notes = '') {
   detail.hidden = !notes;
 }
 
+function closeAudit() {
+  auditWorker?.terminate();
+  auditWorker = undefined;
+}
+
 function resetResult() {
-  for (const id of ['download-json', 'download-html', 'download-receipt']) {
-    const link = byId(id);
-    if (link.hasAttribute('href')) URL.revokeObjectURL(link.href);
-    link.removeAttribute('href');
-  }
-  frame.hidden = metrics.hidden = downloads.hidden = true;
+  closeAudit();
+  frame.hidden = metrics.hidden = downloads.hidden = previewNotice.hidden = exportNotice.hidden = true;
   frame.removeAttribute('srcdoc');
 }
 
-function show({ report, html, receipt }) {
-  if (report.status === 'input_error') {
+function show({ report, summary, html, preview_notice }) {
+  if (report) {
+    closeAudit();
     setState(report.status, resultLabels.input_error, `${report.field} · ${report.message}`);
     return;
   }
-  const offsets = report.pad_differences.filter(item => item.kind === 'pad_offset');
-  const worst = offsets.reduce((best, item) => (!best || item.distance_mm > best.distance_mm ? item : best), null);
-  const failedLayers = (report.pad_layers ?? []).filter(layer => layer.status === 'failed')
-    .map(layer => layer.side === 'top' ? '顶铜核验失败' : '底铜核验失败');
+  const worst = summary.worst_pad;
+  const failedLayers = summary.failed_layers.map(side => side === 'top' ? '顶铜核验失败' : '底铜核验失败');
   const finding = worst ? `${worst.ref} 铜层偏差 ${worst.distance_mm.toFixed(2)} mm`
-    : (failedLayers.length ? '' : reasons[report.reason]);
-  setState(report.status, resultLabels[report.status],
+    : (failedLayers.length ? '' : reasons[summary.reason]);
+  setState(summary.status, resultLabels[summary.status],
     [finding, ...failedLayers].filter(Boolean).join(' · '));
-  byId('table-count').textContent = String(report.differences.length);
-  byId('pad-count').textContent = String(report.pad_differences.length);
-  byId('checked-count').textContent = String(report.pad_checked);
-  metrics.hidden = downloads.hidden = frame.hidden = false;
-  frame.srcdoc = html;
-  byId('download-json').href = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2) + '\n'],
-    { type: 'application/json' }));
-  byId('download-html').href = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
-  const receiptLink = byId('download-receipt');
-  receiptLink.hidden = !receipt;
-  if (receipt) {
-    receiptLink.href = URL.createObjectURL(new Blob([JSON.stringify(receipt, null, 2) + '\n'],
-      { type: 'application/json' }));
+  byId('table-count').textContent = String(summary.table_count);
+  byId('pad-count').textContent = String(summary.pad_count);
+  byId('checked-count').textContent = String(summary.pad_checked);
+  metrics.hidden = downloads.hidden = false;
+  if (html) {
+    frame.srcdoc = html;
+    frame.hidden = false;
+  }
+  previewNotice.textContent = preview_notice ?? '';
+  previewNotice.hidden = !preview_notice;
+  byId('download-receipt').hidden = !summary.receipt_available;
+}
+
+async function exportReport(format) {
+  if (!auditWorker || run.disabled) return;
+  run.disabled = demo.disabled = true;
+  for (const button of downloads.querySelectorAll('button')) button.disabled = true;
+  exportNotice.textContent = '正在生成下载文件…';
+  exportNotice.hidden = false;
+  try {
+    const { file } = await askWorker({ action: 'export', format }, '生成报告超过 30 秒。请重新核对，或使用命令行工具导出。');
+    const url = URL.createObjectURL(file);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = exportNames[format];
+    link.hidden = true;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    exportNotice.hidden = true;
+  } catch (error) {
+    closeAudit();
+    downloads.hidden = true;
+    exportNotice.textContent = error.message;
+  } finally {
+    run.disabled = demo.disabled = false;
+    for (const button of downloads.querySelectorAll('button')) button.disabled = false;
   }
 }
 
@@ -160,8 +193,14 @@ async function check(useDemo) {
   resetResult();
   setState('idle', '正在核对…');
   try {
-    show(await calculate(await files(useDemo)));
+    if (typeof Worker !== 'function') {
+      throw new Error('此浏览器无法在后台运行核对。请使用当前版本的浏览器或命令行。');
+    }
+    const input = await files(useDemo);
+    auditWorker = new Worker(new URL('./worker.mjs', import.meta.url), { type: 'module' });
+    show(await askWorker({ action: 'audit', input }, '核对超过 30 秒。可尝试只核对一个拼板单元，或使用命令行。'));
   } catch (error) {
+    closeAudit();
     setState('input_error', '无法完成核对', error.message);
   } finally {
     run.disabled = demo.disabled = false;
@@ -173,3 +212,6 @@ form.addEventListener('submit', event => {
   void check(false);
 });
 demo.addEventListener('click', () => void check(true));
+for (const format of Object.keys(exportNames)) {
+  byId(`download-${format}`).addEventListener('click', () => void exportReport(format));
+}

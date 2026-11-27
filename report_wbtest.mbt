@@ -34,6 +34,55 @@ fn empty_report_board() -> PlacementTable raise InputError {
 }
 
 ///|
+test "online preview caps repeated findings and long text while full HTML retains them" {
+  let board = empty_report_board()
+  let findings : Array[Json] = []
+  let reviews : Array[Json] = []
+  let excluded : Array[String] = []
+  for index in 0..<40 {
+    excluded.push("X\{index}")
+    findings.push({
+      "ref": Json("P\{index}"),
+      "kind": Json("package"),
+      "baseline": Json("<".repeat(90) + "END"),
+      "delivery": Json("new"),
+    })
+    reviews.push({
+      "ref": Json("Q\{index}"),
+      "side": Json("top"),
+      "evidence": { "status": Json("unverified") },
+    })
+  }
+  let report : Json = {
+    "status": Json("different"),
+    "pad_status": Json("incomplete"),
+    "baseline_count": Json(161),
+    "differences": Json(findings),
+    "pad_evidence": Json(reviews),
+    "placement_import": {
+      "scope": Json("excluded"),
+      "baseline": { "excluded_refs": Json(excluded) },
+    },
+  }
+  let preview = render_html_preview(report, board)
+  assert_true(preview.contains("仅显示前 32 项（共 40 项）。"))
+  assert_true(preview.contains("未核对位号 X0"))
+  assert_false(preview.contains("X39"))
+  assert_true(preview.contains("P31"))
+  assert_false(preview.contains("P32"))
+  assert_true(preview.contains("Q31"))
+  assert_false(preview.contains("Q32"))
+  assert_true(preview.contains("&lt;…"))
+  assert_false(preview.contains("END"))
+  assert_false(preview.contains("<svg"))
+  assert_false(preview.contains("<h2>原始 JSON</h2>"))
+  let html = render_html(report, board)
+  assert_true(html.contains("P39"))
+  assert_true(html.contains("END"))
+  assert_true(html.contains("<h2>原始 JSON</h2>"))
+}
+
+///|
 test "library HTML uses the recorded baseline convention for bottom markers" {
   let baseline = fixture_table(
     "R1,0,0,0,top\nR2,2,0,0,top\nR3,-1,2,0,bottom\nU3,1,1,0,top",
